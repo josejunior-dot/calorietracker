@@ -751,7 +751,57 @@ export function buildMealPlan(
     })
   }
 
-  // ---------- Validacao pos-montagem ----------
+  // ---------- Ajuste pos-montagem: gordura ----------
+  // Se gordura ficou muito abaixo da meta, adicionar fonte de gordura no almoco ou jantar
+  const currentFat = meals.reduce((s, m) => s + m.totalFat, 0)
+  if (currentFat < macros.fat * 0.65) {
+    const fatDeficit = macros.fat - currentFat
+    // Procurar fonte de gordura saudavel (azeite, oleaginosas, abacate)
+    const fatSource = fatFoods.filter(f => !usedFoodIds.has(f.id) && f.fat >= 5)
+    shuffle(fatSource)
+    if (fatSource.length > 0) {
+      const pick = fatSource[0]
+      const servings = Math.max(0.5, Math.min(2, Math.round((fatDeficit / pick.fat) * 2) / 2))
+      const item = makePlannedItem(pick, servings)
+      // Adicionar ao almoco
+      const almocoIdx = meals.findIndex(m => m.mealType === 'almoco')
+      if (almocoIdx >= 0) {
+        meals[almocoIdx].items.push(item)
+        meals[almocoIdx].totalCalories += item.calories
+        meals[almocoIdx].totalProtein = Math.round((meals[almocoIdx].totalProtein + item.protein) * 10) / 10
+        meals[almocoIdx].totalCarbs = Math.round((meals[almocoIdx].totalCarbs + item.carbs) * 10) / 10
+        meals[almocoIdx].totalFat = Math.round((meals[almocoIdx].totalFat + item.fat) * 10) / 10
+        usedFoodIds.add(pick.id)
+      }
+    }
+  }
+
+  // ---------- Ajuste pos-montagem: carbs alto demais ----------
+  // Se carbs ficou >30% acima da meta, reduzir porcoes de itens carb
+  const currentCarbs = meals.reduce((s, m) => s + m.totalCarbs, 0)
+  if (currentCarbs > macros.carbs * 1.3) {
+    for (const meal of meals) {
+      for (let i = 0; i < meal.items.length; i++) {
+        const fixedCount = fixedByMeal.get(meal.mealType)?.length || 0
+        if (i < fixedCount) continue // Nao tocar em fixos
+        const item = meal.items[i]
+        if (item.carbs > 30 && item.servings > 0.5) {
+          // Reduzir porcao em 0.5
+          const foodRow = filtered.find(f => f.id === item.foodId)
+          if (foodRow) {
+            meal.items[i] = makePlannedItem(foodRow, item.servings - 0.5)
+          }
+        }
+      }
+      // Recalcular totais
+      meal.totalCalories = Math.round(meal.items.reduce((s, i) => s + i.calories, 0))
+      meal.totalProtein = Math.round(meal.items.reduce((s, i) => s + i.protein, 0) * 10) / 10
+      meal.totalCarbs = Math.round(meal.items.reduce((s, i) => s + i.carbs, 0) * 10) / 10
+      meal.totalFat = Math.round(meal.items.reduce((s, i) => s + i.fat, 0) * 10) / 10
+    }
+  }
+
+  // ---------- Validacao pos-montagem: proteina ----------
   const totalProtein = meals.reduce((s, m) => s + m.totalProtein, 0)
   const totalCarbs = meals.reduce((s, m) => s + m.totalCarbs, 0)
   const totalFat = meals.reduce((s, m) => s + m.totalFat, 0)
