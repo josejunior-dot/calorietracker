@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getDefaultUserId } from '@/lib/user'
-import { buildMealPlan, type DietPreferences, type FixedFoodEntry } from '@/lib/diet-builder'
+import {
+  buildMealPlan,
+  calculateMacroTargets,
+  type FixedFoodEntry,
+  type NutritionStrategy,
+  type UserContext,
+} from '@/lib/diet-builder'
+import { calculateAllMetrics, calculateAge } from '@/lib/bmr'
 import { toISODate } from '@/lib/date'
 import { updateStreak } from '@/lib/streak'
 
-// GET /api/dieta — Gerar sugestao de dieta
+// GET /api/dieta — Gerar sugestao de dieta com inteligencia nutricional
 export async function GET(request: NextRequest) {
   try {
     const userId = await getDefaultUserId()
@@ -16,13 +23,20 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Buscar perfil do usuario
+    // 1. Buscar perfil completo do usuario
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        dailyCalTarget: true,
-        goal: true,
+        name: true,
         weight: true,
+        height: true,
+        birthDate: true,
+        gender: true,
+        activityLevel: true,
+        goal: true,
+        goalKgPerWeek: true,
+        bodyFatPercent: true,
+        dailyCalTarget: true,
       },
     })
 
@@ -33,28 +47,49 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const dailyCal = user.dailyCalTarget ?? 2000
+    // 2. Calcular idade e TDEE
+    const age = calculateAge(user.birthDate)
+    const metrics = calculateAllMetrics({
+      weight: user.weight,
+      height: user.height,
+      birthDate: user.birthDate,
+      gender: user.gender,
+      activityLevel: user.activityLevel,
+      goal: user.goal,
+      goalKgPerWeek: user.goalKgPerWeek,
+      bodyFatPercent: user.bodyFatPercent ?? undefined,
+    })
 
-    // Ler proporções de macros da query string (ou usar padrão)
+    const dailyCal = user.dailyCalTarget ?? metrics.dailyTarget
+
+    // 3. Ler parametros da query string
     const { searchParams } = request.nextUrl
-    const proteinPct = Math.min(60, Math.max(10, parseInt(searchParams.get('proteinPct') || '25')))
-    const carbsPct = Math.min(70, Math.max(10, parseInt(searchParams.get('carbsPct') || '50')))
-    const fatPct = Math.min(50, Math.max(10, parseInt(searchParams.get('fatPct') || '25')))
+    const strategy = (searchParams.get('strategy') || 'equilibrado') as NutritionStrategy
 
-    const proteinTarget = Math.round((dailyCal * proteinPct / 100) / 4)
-    const carbsTarget = Math.round((dailyCal * carbsPct / 100) / 4)
-    const fatTarget = Math.round((dailyCal * fatPct / 100) / 9)
+    // Overrides opcionais
+    const proteinPerKgParam = searchParams.get('proteinPerKg')
+    const carbsGramsParam = searchParams.get('carbsGrams')
+    const overrides: { proteinPerKg?: number; carbsGrams?: number } = {}
+    if (proteinPerKgParam) overrides.proteinPerKg = parseFloat(proteinPerKgParam)
+    if (carbsGramsParam) overrides.carbsGrams = parseInt(carbsGramsParam)
 
-    const prefs: DietPreferences = {
+    // 4. Montar contexto do usuario
+    const userContext: UserContext = {
+      weight: user.weight,
+      height: user.height,
+      age,
+      gender: user.gender,
+      activityLevel: user.activityLevel,
+      goal: user.goal || 'manter',
+      bodyFatPercent: user.bodyFatPercent ?? undefined,
       dailyCalTarget: dailyCal,
-      proteinTarget,
-      carbsTarget,
-      fatTarget,
-      goal: (user.goal as DietPreferences['goal']) || 'manter',
-      preferHighProtein: proteinPct >= 30,
+      tdee: metrics.tdee,
     }
 
-    // Buscar todos os alimentos nao-custom do banco
+    // 5. Calcular metas de macros com a estrategia e overrides
+    const macros = calculateMacroTargets(userContext, strategy, overrides)
+
+    // 6. Buscar todos os alimentos nao-custom do banco
     const foods = await prisma.food.findMany({
       where: { isCustom: false },
       orderBy: { name: 'asc' },
@@ -67,7 +102,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Buscar alimentos fixos (Base Alimentar) do usuario
+    // 7. Buscar alimentos fixos (Base Alimentar) do usuario
     const fixedFoodsRaw = await prisma.fixedFood.findMany({
       where: { userId },
       include: { food: true },
@@ -91,10 +126,32 @@ export async function GET(request: NextRequest) {
       },
     }))
 
+    // 8. Gerar plano alimentar
     const date = toISODate(new Date())
-    const plan = buildMealPlan(foods, prefs, date, fixedFoods.length > 0 ? fixedFoods : undefined)
+    const plan = buildMealPlan(
+      foods,
+      macros,
+      dailyCal,
+      userContext.goal,
+      date,
+      fixedFoods.length > 0 ? fixedFoods : undefined
+    )
 
-    return NextResponse.json({ plan, preferences: prefs })
+    // 9. Retornar plano + macros + contexto do usuario
+    return NextResponse.json({
+      plan,
+      macros,
+      user: {
+        name: user.name,
+        weight: user.weight,
+        height: user.height,
+        age,
+        activityLevel: user.activityLevel,
+        goal: user.goal,
+        dailyCalTarget: dailyCal,
+        tdee: metrics.tdee,
+      },
+    })
   } catch (error) {
     console.error('GET /api/dieta error:', error)
     return NextResponse.json(

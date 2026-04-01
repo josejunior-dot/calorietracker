@@ -6,12 +6,13 @@ import Link from "next/link"
 import {
   Wand2, RefreshCw, CalendarDays, Check, ChevronRight,
   Flame, Beef, Wheat, Droplets, ArrowLeftRight, X, Search,
-  SlidersHorizontal, Pin,
+  Pin, AlertTriangle, ChevronDown, Zap, Leaf, Target, Dumbbell, Trophy,
+  Info,
 } from "lucide-react"
 import { toast } from "sonner"
 import { toISODate, formatDateShort } from "@/lib/date"
-import { MEAL_TYPES } from "@/lib/constants"
-import type { MealPlan, PlannedMeal, PlannedItem } from "@/lib/diet-builder"
+import { MEAL_TYPES, ACTIVITY_LEVELS, GOALS } from "@/lib/constants"
+import type { MealPlan, PlannedMeal, PlannedItem, NutritionStrategy, MacroTargets } from "@/lib/diet-builder"
 
 const NOOM_DOT_COLORS: Record<string, string> = {
   green: "bg-green-500",
@@ -26,34 +27,141 @@ const MEAL_EMOJIS: Record<string, string> = {
   lanche: "\uD83C\uDF6A",
 }
 
-const MACRO_PRESETS = [
-  { name: "Equilibrado", protein: 25, carbs: 50, fat: 25 },
-  { name: "Low Carb", protein: 35, carbs: 25, fat: 40 },
-  { name: "High Protein", protein: 40, carbs: 35, fat: 25 },
-  { name: "Cetogenica", protein: 25, carbs: 10, fat: 65 },
-  { name: "High Carb", protein: 20, carbs: 60, fat: 20 },
+// ============================================================
+// Strategy definitions for the UI cards
+// ============================================================
+
+type StrategyCardDef = {
+  key: NutritionStrategy
+  name: string
+  description: string
+  proteinRange: string
+  carbsIndicator: string
+  suitableTags: string[]
+  hasWarning: boolean
+  icon: React.ComponentType<{ className?: string }>
+}
+
+const STRATEGIES: StrategyCardDef[] = [
+  {
+    key: "equilibrado",
+    name: "Equilibrado",
+    description: "Distribuicao balanceada entre macros. Ideal para saude geral.",
+    proteinRange: "1.2-1.8 g/kg",
+    carbsIndicator: "Moderado",
+    suitableTags: ["Manutencao", "Saude Geral"],
+    hasWarning: false,
+    icon: Target,
+  },
+  {
+    key: "high_protein",
+    name: "High Protein",
+    description: "Foco em proteina para massa muscular e saciedade.",
+    proteinRange: "1.8-2.2 g/kg",
+    carbsIndicator: "Moderado",
+    suitableTags: ["Emagrecimento", "Hipertrofia"],
+    hasWarning: false,
+    icon: Dumbbell,
+  },
+  {
+    key: "low_carb",
+    name: "Low Carb",
+    description: "Carboidrato reduzido sem ser cetogenico.",
+    proteinRange: "1.4-2.0 g/kg",
+    carbsIndicator: "100-130g/dia",
+    suitableTags: ["Emagrecimento", "Resistencia Insulina"],
+    hasWarning: false,
+    icon: Leaf,
+  },
+  {
+    key: "cetogenica",
+    name: "Cetogenica",
+    description: "Restricao forte de carboidrato. Exige acompanhamento.",
+    proteinRange: "1.5-2.0 g/kg",
+    carbsIndicator: "20-50g/dia",
+    suitableTags: ["Emagrecimento", "Avancado"],
+    hasWarning: true,
+    icon: Zap,
+  },
+  {
+    key: "high_carb",
+    name: "High Carb",
+    description: "Para treino intenso e endurance. Carbs elevado.",
+    proteinRange: "1.0-1.4 g/kg",
+    carbsIndicator: "Elevado (55-65%)",
+    suitableTags: ["Endurance", "Treino Intenso"],
+    hasWarning: false,
+    icon: Trophy,
+  },
 ]
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Food = any
 
+type UserProfile = {
+  name: string
+  weight: number
+  height: number
+  age: number
+  activityLevel: string
+  goal: string
+  dailyCalTarget: number
+  tdee: number
+}
+
 export default function DietaPage() {
   const router = useRouter()
   const [plan, setPlan] = useState<MealPlan | null>(null)
+  const [macros, setMacros] = useState<MacroTargets | null>(null)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(false)
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
   const [selectedDate, setSelectedDate] = useState(toISODate(new Date()))
-  const [showConfig, setShowConfig] = useState(true)
 
-  // Macro sliders
-  const [proteinPct, setProteinPct] = useState(25)
-  const [carbsPct, setCarbsPct] = useState(50)
-  const [fatPct, setFatPct] = useState(25)
+  // Strategy
+  const [strategy, setStrategy] = useState<NutritionStrategy>("equilibrado")
+
+  // Overrides (ajuste fino)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [proteinPerKg, setProteinPerKg] = useState<number | null>(null)
+  const [carbsGrams, setCarbsGrams] = useState<number | null>(null)
 
   // Base alimentar count
   const [fixedCount, setFixedCount] = useState(0)
 
+  // Preview macros (calculated on strategy change)
+  const [previewMacros, setPreviewMacros] = useState<MacroTargets | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  // Swap modal
+  const [swapTarget, setSwapTarget] = useState<{ mealIdx: number; itemIdx: number } | null>(null)
+  const [searchResults, setSearchResults] = useState<Food[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searching, setSearching] = useState(false)
+
+  // Fetch user profile on mount
+  useEffect(() => {
+    fetch("/api/perfil")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) {
+          setUserProfile({
+            name: data.name,
+            weight: data.weight,
+            height: data.height,
+            age: data.age,
+            activityLevel: data.activityLevel,
+            goal: data.goal,
+            dailyCalTarget: data.dailyCalTarget ?? data.dailyTarget,
+            tdee: data.tdee,
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  // Fetch base alimentar count
   useEffect(() => {
     fetch("/api/base-alimentar")
       .then((r) => r.ok ? r.json() : [])
@@ -61,29 +169,58 @@ export default function DietaPage() {
       .catch(() => {})
   }, [])
 
-  // Substituição
-  const [swapTarget, setSwapTarget] = useState<{ mealIdx: number; itemIdx: number } | null>(null)
-  const [searchResults, setSearchResults] = useState<Food[]>([])
-  const [searchQuery, setSearchQuery] = useState("")
-  const [searching, setSearching] = useState(false)
+  // Fetch macro preview when strategy or overrides change
+  const fetchPreview = useCallback(async (s: NutritionStrategy, pPerKg: number | null, cGrams: number | null) => {
+    setPreviewLoading(true)
+    try {
+      const params = new URLSearchParams({ strategy: s })
+      if (pPerKg !== null) params.set("proteinPerKg", pPerKg.toString())
+      if (cGrams !== null) params.set("carbsGrams", cGrams.toString())
+      // We use the diet API to get the macros preview (it returns macros even without generating plan)
+      const res = await fetch(`/api/dieta?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        setPreviewMacros(data.macros)
+        // Also update user profile from the response if available
+        if (data.user && !userProfile) {
+          setUserProfile(data.user)
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPreviewLoading(false)
+    }
+  }, [userProfile])
 
-  const totalPct = proteinPct + carbsPct + fatPct
+  // Load preview on mount and on strategy change
+  useEffect(() => {
+    fetchPreview(strategy, proteinPerKg, carbsGrams)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strategy])
 
-  const applyPreset = (preset: typeof MACRO_PRESETS[0]) => {
-    setProteinPct(preset.protein)
-    setCarbsPct(preset.carbs)
-    setFatPct(preset.fat)
+  const handleStrategyChange = (s: NutritionStrategy) => {
+    setStrategy(s)
+    // Reset overrides when changing strategy
+    setProteinPerKg(null)
+    setCarbsGrams(null)
+  }
+
+  const handleRecalculate = () => {
+    fetchPreview(strategy, proteinPerKg, carbsGrams)
   }
 
   const generatePlan = useCallback(async () => {
     setLoading(true)
     setPlan(null)
+    setMacros(null)
     setApplied(false)
-    setShowConfig(false)
     try {
-      const res = await fetch(
-        `/api/dieta?proteinPct=${proteinPct}&carbsPct=${carbsPct}&fatPct=${fatPct}`
-      )
+      const params = new URLSearchParams({ strategy })
+      if (proteinPerKg !== null) params.set("proteinPerKg", proteinPerKg.toString())
+      if (carbsGrams !== null) params.set("carbsGrams", carbsGrams.toString())
+
+      const res = await fetch(`/api/dieta?${params.toString()}`)
       if (!res.ok) {
         const err = await res.json()
         toast.error(err.error || "Erro ao gerar dieta")
@@ -91,12 +228,14 @@ export default function DietaPage() {
       }
       const data = await res.json()
       setPlan(data.plan)
+      setMacros(data.macros)
+      if (data.user) setUserProfile(data.user)
     } catch {
       toast.error("Erro de conexao ao gerar dieta")
     } finally {
       setLoading(false)
     }
-  }, [proteinPct, carbsPct, fatPct])
+  }, [strategy, proteinPerKg, carbsGrams])
 
   const applyPlan = useCallback(async () => {
     if (!plan) return
@@ -122,7 +261,7 @@ export default function DietaPage() {
     }
   }, [plan, selectedDate])
 
-  // Buscar alimentos para substituição
+  // Food search for swap
   const searchFoods = useCallback(async (q: string) => {
     if (q.length < 2) { setSearchResults([]); return }
     setSearching(true)
@@ -136,7 +275,7 @@ export default function DietaPage() {
     finally { setSearching(false) }
   }, [])
 
-  // Substituir alimento no plano
+  // Swap food in plan
   const swapFood = (food: Food) => {
     if (!plan || !swapTarget) return
     const { mealIdx, itemIdx } = swapTarget
@@ -175,131 +314,339 @@ export default function DietaPage() {
     toast.success(`Substituido por ${food.name}`)
   }
 
+  const goalLabel = GOALS.find((g) => g.key === userProfile?.goal)?.label || userProfile?.goal || ""
+  const activityLabel = ACTIVITY_LEVELS.find((a) => a.key === userProfile?.activityLevel)?.label || userProfile?.activityLevel || ""
+  const activeStrategy = STRATEGIES.find((s) => s.key === strategy)
+
+  const displayMacros = macros || previewMacros
+
   return (
     <div className="flex flex-col gap-4 px-4 pt-4 pb-24 max-w-lg mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-            <Wand2 className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-foreground">Montador de Dieta</h1>
-            <p className="text-xs text-muted-foreground">Configure suas proporcoes de macros</p>
+      <div className="flex items-center gap-2">
+        <div className="w-10 h-10 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+          <Wand2 className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+        </div>
+        <div>
+          <h1 className="text-lg font-bold text-foreground">Montador de Dieta</h1>
+          <p className="text-xs text-muted-foreground">Inteligencia nutricional baseada no seu perfil</p>
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* Section 1: User Context Card */}
+      {/* ============================================================ */}
+      {userProfile && (
+        <div className="bg-card rounded-2xl border border-border p-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Objetivo:</span>
+              <span className="text-xs font-semibold text-foreground">{goalLabel}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Peso:</span>
+              <span className="text-xs font-semibold text-foreground">{userProfile.weight} kg</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Atividade:</span>
+              <span className="text-xs font-semibold text-foreground">{activityLabel}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Altura:</span>
+              <span className="text-xs font-semibold text-foreground">{userProfile.height} cm</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Meta calorica:</span>
+              <span className="text-xs font-semibold text-foreground">{userProfile.dailyCalTarget?.toLocaleString("pt-BR")} kcal</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Idade:</span>
+              <span className="text-xs font-semibold text-foreground">{userProfile.age} anos</span>
+            </div>
           </div>
         </div>
-        {plan && (
-          <button
-            onClick={() => setShowConfig(!showConfig)}
-            className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center"
-          >
-            <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
-          </button>
+      )}
+
+      {/* ============================================================ */}
+      {/* Section 2: Strategy Selector */}
+      {/* ============================================================ */}
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-foreground">Estrategia Nutricional</h3>
+        <div className="space-y-2">
+          {STRATEGIES.map((s) => {
+            const isSelected = strategy === s.key
+            const Icon = s.icon
+            return (
+              <button
+                key={s.key}
+                onClick={() => handleStrategyChange(s.key)}
+                className={`w-full text-left rounded-xl border-2 p-3 transition-all ${
+                  isSelected
+                    ? "border-green-500 bg-green-50 dark:bg-green-900/20"
+                    : "border-border bg-card hover:bg-muted/50"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                    isSelected ? "bg-green-100 dark:bg-green-900/40" : "bg-muted"
+                  }`}>
+                    <Icon className={`w-4 h-4 ${isSelected ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-foreground">{s.name}</span>
+                      {s.hasWarning && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
+                      {isSelected && <Check className="w-4 h-4 text-green-600 ml-auto shrink-0" />}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">{s.description}</p>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">
+                        P: {s.proteinRange}
+                      </span>
+                      <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded">
+                        C: {s.carbsIndicator}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {s.suitableTags.map((tag) => (
+                        <span key={tag} className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* Section 3: Calculated Macros Preview */}
+      {/* ============================================================ */}
+      {(previewLoading || displayMacros) && (
+        <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          <div className="px-4 py-3 bg-muted/30 border-b border-border">
+            <h3 className="text-sm font-semibold text-foreground">Macros Calculados</h3>
+          </div>
+
+          {previewLoading && !displayMacros ? (
+            <div className="p-4 flex items-center justify-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Calculando...</span>
+            </div>
+          ) : displayMacros ? (
+            <div className="p-4 space-y-3">
+              {/* Macro values */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Beef className="w-4 h-4 text-indigo-500" />
+                    <span className="text-sm text-foreground">Proteina</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-bold text-foreground tabular-nums">{displayMacros.protein} g/dia</span>
+                    <span className="text-xs text-muted-foreground ml-1.5">({displayMacros.proteinPerKg} g/kg)</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Wheat className="w-4 h-4 text-amber-500" />
+                    <span className="text-sm text-foreground">Carboidratos</span>
+                  </div>
+                  <span className="text-sm font-bold text-foreground tabular-nums">{displayMacros.carbs} g/dia</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Droplets className="w-4 h-4 text-red-500" />
+                    <span className="text-sm text-foreground">Gordura</span>
+                  </div>
+                  <span className="text-sm font-bold text-foreground tabular-nums">{displayMacros.fat} g/dia</span>
+                </div>
+                <div className="h-px bg-border" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-semibold text-foreground">Calorias</span>
+                  </div>
+                  <span className="text-sm font-bold text-primary tabular-nums">{displayMacros.calories.toLocaleString("pt-BR")} kcal</span>
+                </div>
+              </div>
+
+              {/* Colored bar */}
+              {displayMacros.calories > 0 && (
+                <>
+                  <div className="flex h-3 rounded-full overflow-hidden">
+                    <div className="bg-indigo-500 transition-all" style={{ width: `${Math.round((displayMacros.protein * 4 / displayMacros.calories) * 100)}%` }} />
+                    <div className="bg-amber-500 transition-all" style={{ width: `${Math.round((displayMacros.carbs * 4 / displayMacros.calories) * 100)}%` }} />
+                    <div className="bg-red-500 transition-all" style={{ width: `${Math.round((displayMacros.fat * 9 / displayMacros.calories) * 100)}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span className="text-indigo-500 font-medium">P: {Math.round((displayMacros.protein * 4 / displayMacros.calories) * 100)}%</span>
+                    <span className="text-amber-500 font-medium">C: {Math.round((displayMacros.carbs * 4 / displayMacros.calories) * 100)}%</span>
+                    <span className="text-red-500 font-medium">G: {Math.round((displayMacros.fat * 9 / displayMacros.calories) * 100)}%</span>
+                  </div>
+                </>
+              )}
+
+              {/* Explanation */}
+              {displayMacros.explanation && (
+                <div className="flex gap-2 p-3 rounded-lg bg-muted/50">
+                  <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <p className="text-xs text-muted-foreground leading-relaxed">{displayMacros.explanation}</p>
+                </div>
+              )}
+
+              {/* Warnings */}
+              {displayMacros.warnings && displayMacros.warnings.length > 0 && (
+                <div className="space-y-1.5">
+                  {displayMacros.warnings.map((w, i) => (
+                    <div key={i} className="flex gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700 dark:text-amber-300">{w}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* Section 4: Advanced Override (collapsible) */}
+      {/* ============================================================ */}
+      <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
+        >
+          <span className="text-sm font-medium text-foreground">Ajuste Fino</span>
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
+        </button>
+
+        {showAdvanced && (
+          <div className="px-4 pb-4 space-y-4 border-t border-border pt-3">
+            {/* Protein per kg slider */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-foreground">Proteina (g/kg)</label>
+                <span className="text-sm font-bold text-indigo-500 tabular-nums">
+                  {proteinPerKg !== null ? proteinPerKg.toFixed(1) : displayMacros?.proteinPerKg?.toFixed(1) || "—"}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.8}
+                max={2.5}
+                step={0.1}
+                value={proteinPerKg ?? displayMacros?.proteinPerKg ?? 1.6}
+                onChange={(e) => setProteinPerKg(parseFloat(e.target.value))}
+                className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                style={{ accentColor: "#6366f1" }}
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>0.8</span>
+                <span>1.5</span>
+                <span>2.0</span>
+                <span>2.5</span>
+              </div>
+            </div>
+
+            {/* Carbs grams slider */}
+            {strategy === "cetogenica" ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-foreground">Carboidratos (g/dia)</label>
+                  <span className="text-sm font-bold text-amber-500 tabular-nums">
+                    {carbsGrams !== null ? carbsGrams : displayMacros?.carbs || "—"}g
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={20}
+                  max={50}
+                  step={5}
+                  value={carbsGrams ?? displayMacros?.carbs ?? 30}
+                  onChange={(e) => setCarbsGrams(parseInt(e.target.value))}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                  style={{ accentColor: "#f59e0b" }}
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>20g</span>
+                  <span>35g</span>
+                  <span>50g</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-foreground">Carboidratos (g/dia)</label>
+                  <span className="text-sm font-bold text-amber-500 tabular-nums">
+                    {carbsGrams !== null ? carbsGrams : displayMacros?.carbs || "—"}g
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={50}
+                  max={400}
+                  step={10}
+                  value={carbsGrams ?? displayMacros?.carbs ?? 150}
+                  onChange={(e) => setCarbsGrams(parseInt(e.target.value))}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                  style={{ accentColor: "#f59e0b" }}
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>50g</span>
+                  <span>200g</span>
+                  <span>400g</span>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleRecalculate}
+              disabled={previewLoading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-muted text-foreground font-medium text-sm hover:bg-muted/80 transition-colors"
+            >
+              {previewLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Recalcular
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Link Base Alimentar */}
+      {/* ============================================================ */}
+      {/* Section 5: Link to Base Alimentar */}
+      {/* ============================================================ */}
       <Link
         href="/dieta/base"
         className="flex items-center justify-between px-4 py-3 bg-card rounded-xl border border-border hover:bg-muted/50 transition-colors"
       >
         <div className="flex items-center gap-2">
           <Pin className="w-4 h-4 text-amber-500" />
-          <span className="text-sm font-medium text-foreground">Base Alimentar</span>
-          <span className="text-xs text-muted-foreground">({fixedCount} itens fixos)</span>
+          <span className="text-sm font-medium text-foreground">Alimentos Obrigatorios do Plano</span>
+          <span className="text-xs text-muted-foreground">({fixedCount} itens)</span>
         </div>
         <ChevronRight className="w-4 h-4 text-muted-foreground" />
       </Link>
 
-      {/* Macro Config */}
-      {showConfig && (
-        <div className="bg-card rounded-2xl border border-border p-4 space-y-4 animate-fade-in">
-          <h3 className="text-sm font-semibold text-foreground">Proporcao de Macronutrientes</h3>
-
-          {/* Presets */}
-          <div className="flex flex-wrap gap-2">
-            {MACRO_PRESETS.map((preset) => {
-              const isActive = preset.protein === proteinPct && preset.carbs === carbsPct && preset.fat === fatPct
-              return (
-                <button
-                  key={preset.name}
-                  onClick={() => applyPreset(preset)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                    isActive
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  {preset.name}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Sliders */}
-          <div className="space-y-3">
-            <MacroSlider
-              label="Proteina"
-              value={proteinPct}
-              onChange={setProteinPct}
-              color="bg-indigo-500"
-              icon={Beef}
-            />
-            <MacroSlider
-              label="Carboidratos"
-              value={carbsPct}
-              onChange={setCarbsPct}
-              color="bg-amber-500"
-              icon={Wheat}
-            />
-            <MacroSlider
-              label="Gordura"
-              value={fatPct}
-              onChange={setFatPct}
-              color="bg-red-500"
-              icon={Droplets}
-            />
-          </div>
-
-          {/* Total indicator */}
-          <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${
-            totalPct === 100 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"
-          }`}>
-            <span className="text-xs font-medium text-muted-foreground">Total</span>
-            <span className={`text-sm font-bold ${
-              totalPct === 100 ? "text-green-600" : "text-red-500"
-            }`}>
-              {totalPct}%
-              {totalPct !== 100 && (
-                <span className="text-xs font-normal ml-1">
-                  (deve ser 100%)
-                </span>
-              )}
-            </span>
-          </div>
-
-          {/* Visual bar */}
-          <div className="flex h-3 rounded-full overflow-hidden">
-            <div className="bg-indigo-500 transition-all" style={{ width: `${proteinPct}%` }} />
-            <div className="bg-amber-500 transition-all" style={{ width: `${carbsPct}%` }} />
-            <div className="bg-red-500 transition-all" style={{ width: `${fatPct}%` }} />
-          </div>
-
-          {/* Generate button */}
-          <button
-            onClick={generatePlan}
-            disabled={loading || totalPct !== 100}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary text-primary-foreground font-semibold text-sm shadow-md shadow-primary/20 transition-all active:scale-[0.98] disabled:opacity-60"
-          >
-            {loading ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : (
-              <Wand2 className="w-4 h-4" />
-            )}
-            {loading ? "Gerando..." : plan ? "Gerar Nova Sugestao" : "Gerar Sugestao de Dieta"}
-          </button>
-        </div>
-      )}
+      {/* ============================================================ */}
+      {/* Section 6: Generate Button */}
+      {/* ============================================================ */}
+      <button
+        onClick={generatePlan}
+        disabled={loading}
+        className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-primary text-primary-foreground font-semibold text-sm shadow-md shadow-primary/20 transition-all active:scale-[0.98] disabled:opacity-60"
+      >
+        {loading ? (
+          <RefreshCw className="w-4 h-4 animate-spin" />
+        ) : (
+          <Wand2 className="w-4 h-4" />
+        )}
+        {loading ? "Gerando..." : plan ? "Gerar Nova Sugestao" : "Gerar Sugestao de Dieta"}
+      </button>
 
       {/* Loading skeleton */}
       {loading && (
@@ -320,9 +667,40 @@ export default function DietaPage() {
         </div>
       )}
 
-      {/* Meal plan cards */}
+      {/* ============================================================ */}
+      {/* Section 7: Generated Plan */}
+      {/* ============================================================ */}
       {plan && !loading && (
         <>
+          {/* Strategy context banner */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
+            <Wand2 className="w-3.5 h-3.5 text-violet-500" />
+            <p className="text-xs text-violet-700 dark:text-violet-300">
+              Sugestao baseada em: <strong>{activeStrategy?.name}</strong> · {userProfile?.weight}kg · {goalLabel}
+            </p>
+          </div>
+
+          {/* Macros explanation from the generated plan */}
+          {macros?.explanation && (
+            <div className="flex gap-2 p-3 rounded-lg bg-muted/50">
+              <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground leading-relaxed">{macros.explanation}</p>
+            </div>
+          )}
+
+          {/* Warnings from generated plan */}
+          {macros?.warnings && macros.warnings.length > 0 && (
+            <div className="space-y-1.5">
+              {macros.warnings.map((w, i) => (
+                <div key={i} className="flex gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 dark:text-amber-300">{w}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Meal cards */}
           <div className="space-y-3">
             {plan.meals.map((meal, mealIdx) => (
               <MealCard
@@ -346,7 +724,6 @@ export default function DietaPage() {
               <MacroBox icon={Wheat} label="Carbs" value={plan.totalCarbs} unit="g" color="text-amber-500" />
               <MacroBox icon={Droplets} label="Gordura" value={plan.totalFat} unit="g" color="text-red-500" />
             </div>
-            {/* Macro distribution bar */}
             <div className="flex h-2 rounded-full overflow-hidden">
               <div className="bg-indigo-500" style={{ width: `${Math.round((plan.totalProtein * 4 / plan.totalCalories) * 100)}%` }} />
               <div className="bg-amber-500" style={{ width: `${Math.round((plan.totalCarbs * 4 / plan.totalCalories) * 100)}%` }} />
@@ -359,7 +736,9 @@ export default function DietaPage() {
             </div>
           </div>
 
-          {/* Date picker + Apply */}
+          {/* ============================================================ */}
+          {/* Section 8: Apply to Diary */}
+          {/* ============================================================ */}
           <div className="bg-card rounded-2xl border border-border p-4 space-y-3">
             <label className="flex items-center gap-2 text-sm font-medium text-foreground">
               <CalendarDays className="w-4 h-4 text-muted-foreground" />
@@ -399,26 +778,21 @@ export default function DietaPage() {
         </>
       )}
 
-      {/* Empty state */}
-      {!plan && !loading && !showConfig && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-            <Wand2 className="w-8 h-8 text-muted-foreground" />
+      {/* Empty state (only shown if no plan, not loading, and we have a profile) */}
+      {!plan && !loading && userProfile && !previewLoading && (
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+            <Wand2 className="w-6 h-6 text-muted-foreground" />
           </div>
-          <h2 className="text-base font-semibold text-foreground mb-1">Nenhuma sugestao gerada</h2>
-          <p className="text-sm text-muted-foreground max-w-xs mb-4">
-            Configure as proporcoes de macros e gere uma sugestao.
+          <p className="text-sm text-muted-foreground max-w-xs">
+            Selecione uma estrategia acima e clique em &quot;Gerar Sugestao&quot; para criar seu plano alimentar.
           </p>
-          <button
-            onClick={() => setShowConfig(true)}
-            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium"
-          >
-            Configurar Macros
-          </button>
         </div>
       )}
 
-      {/* Swap modal */}
+      {/* ============================================================ */}
+      {/* Swap Modal */}
+      {/* ============================================================ */}
       {swapTarget && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSwapTarget(null)} />
@@ -441,7 +815,6 @@ export default function DietaPage() {
                 </p>
               </div>
 
-              {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
@@ -457,7 +830,6 @@ export default function DietaPage() {
                 />
               </div>
 
-              {/* Results */}
               <div className="max-h-64 overflow-y-auto space-y-1">
                 {searching && (
                   <div className="flex justify-center py-4">
@@ -493,37 +865,6 @@ export default function DietaPage() {
 // ============================================================
 // Subcomponentes
 // ============================================================
-
-function MacroSlider({
-  label, value, onChange, color, icon: Icon,
-}: {
-  label: string; value: number; onChange: (v: number) => void; color: string
-  icon: React.ComponentType<{ className?: string }>
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-xs font-medium text-foreground">{label}</span>
-        </div>
-        <span className="text-sm font-bold text-foreground tabular-nums">{value}%</span>
-      </div>
-      <div className="flex items-center gap-3">
-        <input
-          type="range"
-          min={5}
-          max={70}
-          step={5}
-          value={value}
-          onChange={(e) => onChange(parseInt(e.target.value))}
-          className="flex-1 h-2 rounded-full appearance-none cursor-pointer accent-current"
-          style={{ accentColor: color === "bg-indigo-500" ? "#6366f1" : color === "bg-amber-500" ? "#f59e0b" : "#ef4444" }}
-        />
-      </div>
-    </div>
-  )
-}
 
 function MealCard({ meal, onSwapItem }: { meal: PlannedMeal; onSwapItem: (idx: number) => void }) {
   const emoji = MEAL_EMOJIS[meal.mealType] || ""
