@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import {
   Layers, Plus, Trash2, ArrowLeft, Search, X, Check,
-  ChevronDown, Flame, Beef, Wheat, Droplets,
+  ChevronDown, Flame, Beef, Wheat, Droplets, Pencil,
 } from "lucide-react"
 import { toast } from "sonner"
 import { FoodCard } from "@/components/alimentos/FoodCard"
@@ -126,8 +126,9 @@ export default function CombosPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
-  // Creation flow
+  // Creation/Edit flow
   const [showCreate, setShowCreate] = useState(false)
   const [step, setStep] = useState<"name" | "ingredients" | "preview">("name")
   const [comboName, setComboName] = useState("")
@@ -246,14 +247,36 @@ export default function CombosPage() {
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   )
 
+  const handleEditCombo = (combo: Combo) => {
+    setEditingId(combo.id)
+    setComboName(combo.name)
+    setIngredients(
+      combo.items.map((item) => ({
+        foodId: item.foodId,
+        foodName: item.foodName,
+        quantity: item.quantity,
+        unit: item.unit,
+        servings: item.servings,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+      }))
+    )
+    setStep("ingredients")
+    setShowCreate(true)
+  }
+
   const handleSaveCombo = async () => {
     if (!comboName.trim() || ingredients.length === 0) return
     setCreating(true)
     try {
+      const isEdit = !!editingId
       const res = await fetch("/api/combos", {
-        method: "POST",
+        method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(isEdit ? { id: editingId } : {}),
           name: comboName.trim(),
           items: ingredients.map((i) => ({
             foodId: i.foodId,
@@ -264,15 +287,15 @@ export default function CombosPage() {
         }),
       })
       if (res.ok) {
-        toast.success("Combo criado com sucesso!")
+        toast.success(isEdit ? "Combo atualizado!" : "Combo criado com sucesso!")
         resetCreateFlow()
         fetchCombos()
       } else {
         const data = await res.json()
-        toast.error(data.error || "Erro ao criar combo")
+        toast.error(data.error || "Erro ao salvar combo")
       }
     } catch {
-      toast.error("Erro ao criar combo")
+      toast.error("Erro ao salvar combo")
     } finally {
       setCreating(false)
     }
@@ -305,6 +328,7 @@ export default function CombosPage() {
     setSearchCategory(null)
     setSearchResults([])
     setHasSearched(false)
+    setEditingId(null)
   }
 
   // ----------------------------------------------------------
@@ -425,7 +449,14 @@ export default function CombosPage() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex border-t border-border">
+                    <div className="flex border-t border-border divide-x divide-border">
+                      <button
+                        onClick={() => handleEditCombo(combo)}
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-medium text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-500/10 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Editar
+                      </button>
                       <button
                         onClick={() => handleDeleteCombo(combo.id)}
                         disabled={deleting === combo.id}
@@ -473,7 +504,7 @@ export default function CombosPage() {
               <X className="w-5 h-5 text-foreground" />
             </button>
             <h2 className="text-base font-bold text-foreground flex-1">
-              {step === "name" && "Novo Combo"}
+              {step === "name" && (editingId ? "Editar Combo" : "Novo Combo")}
               {step === "ingredients" && "Ingredientes"}
               {step === "preview" && "Revisar Combo"}
             </h2>
@@ -821,7 +852,7 @@ export default function CombosPage() {
                     disabled={creating}
                     className="flex-[2] py-3.5 rounded-xl bg-violet-600 text-white font-semibold text-sm shadow-md shadow-violet-600/20 transition-all active:scale-[0.98] hover:bg-violet-700 disabled:opacity-60"
                   >
-                    {creating ? "Salvando..." : "Salvar Combo"}
+                    {creating ? "Salvando..." : editingId ? "Salvar Alteracoes" : "Salvar Combo"}
                   </button>
                 </div>
               </div>

@@ -203,6 +203,118 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// PUT /api/combos — Update an existing combo
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { id, name, items } = body as {
+      id: string
+      name: string
+      items: Array<{
+        foodId: string
+        quantity: number
+        unit: string
+        servings: number
+      }>
+    }
+
+    if (!id || !name || !items || items.length === 0) {
+      return NextResponse.json(
+        { error: 'ID, nome e pelo menos 1 ingrediente sao obrigatorios' },
+        { status: 400 }
+      )
+    }
+
+    // Verify it exists
+    const existing = await prisma.food.findFirst({
+      where: { id, isCombo: true, isCustom: true },
+    })
+    if (!existing) {
+      return NextResponse.json({ error: 'Combo nao encontrado' }, { status: 404 })
+    }
+
+    // Fetch ingredient foods
+    const foodIds = items.map((i) => i.foodId)
+    const foods = await prisma.food.findMany({ where: { id: { in: foodIds } } })
+    const foodMap = new Map(foods.map((f) => [f.id, f]))
+
+    // Recalculate nutrition
+    let totalCalories = 0, totalProtein = 0, totalCarbs = 0, totalFat = 0
+    let totalFiber = 0, totalSugar = 0, totalSodium = 0
+    let totalSaturatedFat = 0, totalTransFat = 0, totalWeightGrams = 0
+
+    for (const item of items) {
+      const food = foodMap.get(item.foodId)
+      if (!food) continue
+      const s = item.servings
+      totalCalories += food.calories * s
+      totalProtein += food.protein * s
+      totalCarbs += food.carbs * s
+      totalFat += food.fat * s
+      totalFiber += food.fiber * s
+      totalSugar += food.sugar * s
+      totalSodium += food.sodium * s
+      totalSaturatedFat += food.saturatedFat * s
+      totalTransFat += food.transFat * s
+      if (item.unit === 'g' || item.unit === 'ml') totalWeightGrams += item.quantity
+      else if (item.unit === 'colher') totalWeightGrams += item.quantity * 15
+      else if (item.unit === 'pitada') totalWeightGrams += item.quantity * 0.5
+      else totalWeightGrams += food.servingSize * s
+    }
+
+    const noomColor = getNoomColor(totalCalories, totalWeightGrams || 1)
+
+    // Delete old items and update food + create new items
+    await prisma.comboItem.deleteMany({ where: { comboId: id } })
+
+    const combo = await prisma.food.update({
+      where: { id },
+      data: {
+        name,
+        calories: Math.round(totalCalories * 10) / 10,
+        protein: Math.round(totalProtein * 10) / 10,
+        carbs: Math.round(totalCarbs * 10) / 10,
+        fat: Math.round(totalFat * 10) / 10,
+        saturatedFat: Math.round(totalSaturatedFat * 10) / 10,
+        transFat: Math.round(totalTransFat * 10) / 10,
+        fiber: Math.round(totalFiber * 10) / 10,
+        sugar: Math.round(totalSugar * 10) / 10,
+        sodium: Math.round(totalSodium * 10) / 10,
+        noomColor,
+        comboItems: {
+          create: items.map((item) => ({
+            foodId: item.foodId,
+            quantity: item.quantity,
+            unit: item.unit,
+            servings: item.servings,
+          })),
+        },
+      },
+      include: { comboItems: true },
+    })
+
+    const result = {
+      ...combo,
+      items: combo.comboItems.map((ci) => {
+        const food = foodMap.get(ci.foodId)
+        return {
+          id: ci.id, foodId: ci.foodId, foodName: food?.name ?? 'Desconhecido',
+          quantity: ci.quantity, unit: ci.unit, servings: ci.servings,
+          calories: food ? food.calories * ci.servings : 0,
+          protein: food ? food.protein * ci.servings : 0,
+          carbs: food ? food.carbs * ci.servings : 0,
+          fat: food ? food.fat * ci.servings : 0,
+        }
+      }),
+    }
+
+    return NextResponse.json(result)
+  } catch (error) {
+    console.error('PUT /api/combos error:', error)
+    return NextResponse.json({ error: 'Erro ao atualizar combo' }, { status: 500 })
+  }
+}
+
 // DELETE /api/combos?id=xxx — Delete a combo
 export async function DELETE(request: NextRequest) {
   try {
@@ -227,6 +339,10 @@ export async function DELETE(request: NextRequest) {
         { status: 404 }
       )
     }
+
+    // Remove references from MealEntry and FixedFood before deleting
+    await prisma.mealEntry.deleteMany({ where: { foodId: id } })
+    await prisma.fixedFood.deleteMany({ where: { foodId: id } })
 
     // Delete (cascade will remove ComboItems)
     await prisma.food.delete({ where: { id } })
