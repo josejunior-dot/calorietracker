@@ -653,7 +653,12 @@ function selectBestFood(
   // Filtrar por adequacao a refeicao (habitos brasileiros)
   if (mealType) {
     const suitable = available.filter(f => isSuitableForMeal(f.name, f.category, mealType))
-    if (suitable.length > 0) available = suitable
+    if (suitable.length > 0) {
+      available = suitable
+    } else if (mealType === 'cafe_da_manha') {
+      // Café da manhã: NUNCA usar fallback para carnes pesadas
+      return null
+    }
   }
 
   // Filtrar por limite de repetição de tipo base no dia
@@ -732,9 +737,11 @@ function recalcMeal(meal: PlannedMeal) {
 /** Estrutura por refeicao: [papel, macro_alvo] */
 type RoleDef = { role: string; macro: 'protein' | 'carbs' | 'fat' | 'volume'; cats: Set<string>; portionFrac: number }
 
+/** Categorias permitidas no café da manhã para proteína (nunca carnes pesadas) */
+const CAFE_PROTEIN_CATEGORIES = new Set(['laticinios'])
 const CAFE_ROLES: RoleDef[] = [
-  { role: 'proteina', macro: 'protein', cats: DAIRY_CATEGORIES, portionFrac: 0.3 },
-  { role: 'proteina2', macro: 'protein', cats: PROTEIN_CATEGORIES, portionFrac: 0.7 },
+  { role: 'proteina', macro: 'protein', cats: CAFE_PROTEIN_CATEGORIES, portionFrac: 0.4 },
+  { role: 'proteina2', macro: 'protein', cats: CAFE_PROTEIN_CATEGORIES, portionFrac: 0.6 },
   { role: 'carboidrato', macro: 'carbs', cats: CARB_CATEGORIES, portionFrac: 0.7 },
   { role: 'fruta', macro: 'carbs', cats: new Set(['frutas']), portionFrac: 0.3 },
 ]
@@ -764,7 +771,14 @@ const ROLES_BY_MEAL: Record<string, RoleDef[]> = {
 }
 
 // Proteinas leves para cafe (nao carnes pesadas)
-const LIGHT_PROTEIN_NAMES = new Set(['Ovo cozido', 'Peito de peru', 'Presunto', 'Queijo minas frescal', 'Iogurte grego'])
+const LIGHT_PROTEIN_NAMES = new Set([
+  'Ovo cozido', 'Peito de peru', 'Presunto', 'Mortadela',
+  'Queijo minas frescal', 'Queijo mussarela', 'Queijo prato',
+  'Iogurte grego', 'Iogurte natural integral',
+  'Requeijão cremoso', 'Cream cheese',
+  'Leite integral', 'Leite desnatado',
+  'Whey protein (scoop)', 'Albumina (dose)',
+])
 
 export function buildMealPlan(
   foods: FoodRow[],
@@ -882,13 +896,11 @@ export function buildMealPlan(
         candidates = candidates.filter(f => { if (seen.has(f.id)) return false; seen.add(f.id); return true })
       }
 
-      // Para cafe, filtrar proteinas pesadas
+      // Para cafe, APENAS proteinas leves (laticínios, ovos, frios)
       if (mealType === 'cafe_da_manha' && roleDef.macro === 'protein') {
-        const light = candidates.filter(f =>
-          DAIRY_CATEGORIES.has(f.category) || LIGHT_PROTEIN_NAMES.has(f.name) ||
-          (f.calories <= 100 && f.protein >= 5)
+        candidates = candidates.filter(f =>
+          CAFE_PROTEIN_CATEGORIES.has(f.category) || LIGHT_PROTEIN_NAMES.has(f.name)
         )
-        if (light.length > 0) candidates = light
       }
 
       const result = selectBestFood(candidates, usedFoodIds, adjustedBudget, roleDef.macro, macros.strategy, mealType, usedBaseTypes)
