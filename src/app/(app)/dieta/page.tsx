@@ -836,7 +836,7 @@ export default function DietaPage() {
               <X className="w-4 h-4 text-muted-foreground" />
             </button>
 
-            <div className="px-5 pb-8 pt-2 space-y-4" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
+            <div className="px-5 pt-2 space-y-4" style={{ paddingBottom: 'max(5.5rem, calc(4.5rem + env(safe-area-inset-bottom)))' }}>
               <div>
                 <h3 className="text-lg font-bold text-foreground">Substituir Alimento</h3>
                 <p className="text-xs text-muted-foreground">
