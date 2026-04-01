@@ -488,6 +488,65 @@ function fixedFoodToPlannedItem(entry: FixedFoodEntry): PlannedItem {
 }
 
 // ==================== BUILDER PRINCIPAL ====================
+// Logica: proteina PRIMEIRO, depois carbs, depois gordura.
+// Cada refeicao recebe sua cota de macros e o algoritmo seleciona
+// alimentos para bater cada macro, nao apenas calorias.
+// ============================================================
+
+/** Classifica alimentos por predominancia de macro */
+function classifyFood(f: FoodRow): 'protein' | 'carb' | 'fat' | 'mixed' {
+  const totalMacroG = f.protein + f.carbs + f.fat
+  if (totalMacroG === 0) return 'mixed'
+  const pPct = f.protein / totalMacroG
+  const cPct = f.carbs / totalMacroG
+  const fPct = f.fat / totalMacroG
+  if (pPct >= 0.45) return 'protein'
+  if (cPct >= 0.55) return 'carb'
+  if (fPct >= 0.50) return 'fat'
+  return 'mixed'
+}
+
+/** Seleciona um alimento de uma lista, priorizando os primeiros, com leve aleatoriedade */
+function pickFrom(candidates: FoodRow[], usedIds: Set<string>): FoodRow | null {
+  const available = candidates.filter(f => !usedIds.has(f.id))
+  if (available.length === 0) return null
+  // Escolhe entre os top 3 para variedade
+  const idx = Math.floor(Math.random() * Math.min(3, available.length))
+  return available[idx]
+}
+
+/** Cria PlannedItem a partir de FoodRow com porcoes ajustadas */
+function makePlannedItem(food: FoodRow, servings: number): PlannedItem {
+  const s = Math.round(servings * 2) / 2 // Arredonda para 0.5
+  const clampedS = Math.max(0.5, Math.min(3, s))
+  return {
+    foodId: food.id,
+    name: food.name,
+    servings: clampedS,
+    servingLabel: food.servingLabel,
+    calories: Math.round(food.calories * clampedS),
+    protein: Math.round(food.protein * clampedS * 10) / 10,
+    carbs: Math.round(food.carbs * clampedS * 10) / 10,
+    fat: Math.round(food.fat * clampedS * 10) / 10,
+    noomColor: food.noomColor,
+  }
+}
+
+/** Categorias tipicas para cada papel na refeicao */
+const PROTEIN_CATEGORIES = new Set(['carnes'])
+const CARB_CATEGORIES = new Set(['graos', 'paes', 'frutas'])
+const VEG_CATEGORIES = new Set(['legumes'])
+const DAIRY_CATEGORIES = new Set(['laticinios'])
+
+/** Templates de estrutura por refeicao (papel do alimento na refeicao) */
+type MealRole = 'protein' | 'carb' | 'carb2' | 'vegetable' | 'vegetable2' | 'fruit' | 'dairy' | 'snack'
+
+const MEAL_STRUCTURE: Record<string, MealRole[]> = {
+  cafe_da_manha: ['protein', 'carb', 'fruit', 'dairy'],
+  almoco: ['protein', 'carb', 'carb2', 'vegetable', 'vegetable2'],
+  jantar: ['protein', 'carb', 'vegetable'],
+  lanche: ['protein', 'snack'],
+}
 
 export function buildMealPlan(
   foods: FoodRow[],
@@ -498,156 +557,167 @@ export function buildMealPlan(
   fixedFoods?: FixedFoodEntry[]
 ): MealPlan {
   const usedFoodIds = new Set<string>()
-  const nonCustomFoods = foods.filter((f) => !f.isCustom)
+  const nonCustomFoods = foods.filter(f => !f.isCustom)
+  const filtered = filterByStrategy(filterByGoal(nonCustomFoods, goal), macros.strategy)
 
-  // Aplicar filtros: primeiro por objetivo, depois por estrategia
-  const goalFiltered = filterByGoal(nonCustomFoods, goal)
-  const strategyFiltered = filterByStrategy(goalFiltered, macros.strategy)
+  // Indexar alimentos por papel nutricional
+  const proteinFoods = filtered.filter(f => PROTEIN_CATEGORIES.has(f.category) || (f.protein >= 15 && classifyFood(f) === 'protein'))
+    .sort((a, b) => (b.protein / Math.max(1, b.calories)) - (a.protein / Math.max(1, a.calories)))
+  const carbFoods = filtered.filter(f => CARB_CATEGORIES.has(f.category))
+  const vegFoods = filtered.filter(f => VEG_CATEGORIES.has(f.category))
+  const dairyFoods = filtered.filter(f => DAIRY_CATEGORIES.has(f.category))
+  const fruitFoods = filtered.filter(f => f.category === 'frutas')
+  const snackFoods = filtered.filter(f => ['frutas', 'laticinios', 'industrializados'].includes(f.category))
 
-  // Indexar alimentos por categoria
-  const byCategory = new Map<string, FoodRow[]>()
-  for (const f of strategyFiltered) {
-    const list = byCategory.get(f.category) || []
-    list.push(f)
-    byCategory.set(f.category, list)
-  }
+  // Shufflar para variedade (exceto proteinFoods que ja esta ordenado por ratio)
+  shuffle(carbFoods)
+  shuffle(vegFoods)
+  shuffle(dairyFoods)
+  shuffle(fruitFoods)
+  shuffle(snackFoods)
 
-  // ---------- Pre-popular refeicoes com alimentos fixos ----------
+  // ---------- Pre-popular com alimentos fixos ----------
   const fixedByMeal = new Map<string, PlannedItem[]>()
-  const fixedCalsByMeal = new Map<string, number>()
-  const fixedMacrosByMeal = new Map<string, { protein: number; carbs: number; fat: number }>()
-  const qualquerFoods: FixedFoodEntry[] = []
+  const fixedMacrosByMeal = new Map<string, { protein: number; carbs: number; fat: number; calories: number }>()
 
   for (const mealType of Object.keys(MEAL_DISTRIBUTION)) {
     fixedByMeal.set(mealType, [])
-    fixedCalsByMeal.set(mealType, 0)
-    fixedMacrosByMeal.set(mealType, { protein: 0, carbs: 0, fat: 0 })
+    fixedMacrosByMeal.set(mealType, { protein: 0, carbs: 0, fat: 0, calories: 0 })
   }
 
   if (fixedFoods && fixedFoods.length > 0) {
+    const qualquerFoods: FixedFoodEntry[] = []
+
     for (const ff of fixedFoods) {
       if (ff.mealType === 'qualquer') {
         qualquerFoods.push(ff)
       } else if (fixedByMeal.has(ff.mealType)) {
         const item = fixedFoodToPlannedItem(ff)
         fixedByMeal.get(ff.mealType)!.push(item)
-        fixedCalsByMeal.set(ff.mealType, (fixedCalsByMeal.get(ff.mealType) || 0) + item.calories)
         const m = fixedMacrosByMeal.get(ff.mealType)!
-        m.protein += item.protein
-        m.carbs += item.carbs
-        m.fat += item.fat
+        m.protein += item.protein; m.carbs += item.carbs; m.fat += item.fat; m.calories += item.calories
         usedFoodIds.add(ff.foodId)
       }
     }
 
-    // Alocar alimentos "qualquer" na refeicao com mais calorias restantes
     for (const ff of qualquerFoods) {
       let bestMeal = 'almoco'
       let bestRemaining = -Infinity
-      for (const [mealType, fraction] of Object.entries(MEAL_DISTRIBUTION)) {
-        const mealCalTarget = dailyCalTarget * fraction
-        const used = fixedCalsByMeal.get(mealType) || 0
-        const remaining = mealCalTarget - used
-        if (remaining > bestRemaining) {
-          bestRemaining = remaining
-          bestMeal = mealType
-        }
+      for (const [mt, frac] of Object.entries(MEAL_DISTRIBUTION)) {
+        const remaining = dailyCalTarget * frac - (fixedMacrosByMeal.get(mt)?.calories || 0)
+        if (remaining > bestRemaining) { bestRemaining = remaining; bestMeal = mt }
       }
       const item = fixedFoodToPlannedItem(ff)
       fixedByMeal.get(bestMeal)!.push(item)
-      fixedCalsByMeal.set(bestMeal, (fixedCalsByMeal.get(bestMeal) || 0) + item.calories)
       const m = fixedMacrosByMeal.get(bestMeal)!
-      m.protein += item.protein
-      m.carbs += item.carbs
-      m.fat += item.fat
+      m.protein += item.protein; m.carbs += item.carbs; m.fat += item.fat; m.calories += item.calories
       usedFoodIds.add(ff.foodId)
     }
   }
 
-  // ---------- Distribuir metas de macro por refeicao ----------
-  const mealProteinTargets = new Map<string, number>()
-  const mealCarbsTargets = new Map<string, number>()
-  const mealFatTargets = new Map<string, number>()
-
-  for (const [mealType, fraction] of Object.entries(MEAL_DISTRIBUTION)) {
-    mealProteinTargets.set(mealType, macros.protein * fraction)
-    mealCarbsTargets.set(mealType, macros.carbs * fraction)
-    mealFatTargets.set(mealType, macros.fat * fraction)
-  }
-
+  // ---------- Montar cada refeicao respeitando MACROS ----------
   const meals: PlannedMeal[] = []
 
   for (const [mealType, fraction] of Object.entries(MEAL_DISTRIBUTION)) {
+    const structure = MEAL_STRUCTURE[mealType] || ['protein', 'carb']
+    const mealProteinTarget = macros.protein * fraction
+    const mealCarbsTarget = macros.carbs * fraction
+    const mealFatTarget = macros.fat * fraction
     const mealCalTarget = dailyCalTarget * fraction
-    const template = MEAL_TEMPLATES[mealType]
+
+    const fixed = fixedMacrosByMeal.get(mealType) || { protein: 0, carbs: 0, fat: 0, calories: 0 }
+    let proteinLeft = mealProteinTarget - fixed.protein
+    let carbsLeft = mealCarbsTarget - fixed.carbs
+    let calLeft = mealCalTarget - fixed.calories
 
     const items: PlannedItem[] = [...(fixedByMeal.get(mealType) || [])]
-    let mealCalUsed = fixedCalsByMeal.get(mealType) || 0
 
-    if (mealCalUsed < mealCalTarget) {
-      const allSlots = template.length
+    for (const role of structure) {
+      if (calLeft <= 20) break
 
-      for (let si = 0; si < allSlots; si++) {
-        const slot = template[si]
-        const remainingSlots = allSlots - si
-        const slotCalTarget = (mealCalTarget - mealCalUsed) / remainingSlots
+      let candidates: FoodRow[]
+      let targetGrams: number
+      let macroKey: 'protein' | 'carbs' | 'fat'
 
-        if (slot.optional && mealCalUsed >= mealCalTarget * 0.85) {
-          continue
+      switch (role) {
+        case 'protein': {
+          candidates = proteinFoods
+          targetGrams = Math.max(proteinLeft, 0)
+          macroKey = 'protein'
+          break
         }
-
-        // Buscar candidatos das categorias do slot
-        let candidates: FoodRow[] = []
-        for (const cat of slot.categories) {
-          const catFoods = byCategory.get(cat) || []
-          candidates.push(...catFoods.filter((f) => !usedFoodIds.has(f.id)))
+        case 'carb':
+        case 'carb2': {
+          candidates = carbFoods
+          targetGrams = Math.max(carbsLeft, 0)
+          macroKey = 'carbs'
+          // Para carb2 (feijao), reduzir target pela metade
+          if (role === 'carb2') targetGrams = targetGrams * 0.4
+          break
         }
-
-        if (candidates.length === 0) {
-          candidates = strategyFiltered.filter((f) => !usedFoodIds.has(f.id))
+        case 'vegetable':
+        case 'vegetable2': {
+          candidates = vegFoods
+          targetGrams = 0 // Legumes entram por volume, nao por macro
+          macroKey = 'carbs'
+          break
         }
-
-        if (candidates.length === 0) continue
-
-        // Para estrategias focadas em proteina, priorizar alimentos proteicos em todos os slots
-        if (macros.strategy === 'high_protein' || macros.strategy === 'cetogenica') {
-          candidates.sort((a, b) => {
-            const ratioA = a.protein / Math.max(1, a.calories)
-            const ratioB = b.protein / Math.max(1, b.calories)
-            return ratioB - ratioA
-          })
-        } else {
-          shuffle(candidates)
+        case 'fruit': {
+          candidates = fruitFoods
+          targetGrams = Math.max(carbsLeft * 0.3, 0)
+          macroKey = 'carbs'
+          break
         }
-
-        // Escolher o melhor candidato (mais proximo da caloria do slot)
-        candidates.sort((a, b) => {
-          const diffA = Math.abs(a.calories - slotCalTarget)
-          const diffB = Math.abs(b.calories - slotCalTarget)
-          return diffA - diffB
-        })
-
-        const pick = candidates[Math.floor(Math.random() * Math.min(3, candidates.length))]
-        const servings = adjustServings(pick, slotCalTarget)
-        const itemCals = pick.calories * servings
-
-        items.push({
-          foodId: pick.id,
-          name: pick.name,
-          servings,
-          servingLabel: pick.servingLabel,
-          calories: Math.round(itemCals),
-          protein: Math.round(pick.protein * servings * 10) / 10,
-          carbs: Math.round(pick.carbs * servings * 10) / 10,
-          fat: Math.round(pick.fat * servings * 10) / 10,
-          noomColor: pick.noomColor,
-        })
-
-        usedFoodIds.add(pick.id)
-        mealCalUsed += itemCals
+        case 'dairy': {
+          candidates = dairyFoods
+          targetGrams = Math.max(proteinLeft * 0.3, 0)
+          macroKey = 'protein'
+          break
+        }
+        case 'snack': {
+          candidates = snackFoods
+          targetGrams = 0
+          macroKey = 'carbs'
+          break
+        }
+        default: {
+          candidates = filtered
+          targetGrams = 0
+          macroKey = 'carbs'
+        }
       }
+
+      const pick = pickFrom(candidates, usedFoodIds)
+      if (!pick) continue
+
+      // Calcular porcoes baseadas no MACRO alvo, nao em calorias
+      let servings: number
+      if (targetGrams > 0 && pick[macroKey] > 0) {
+        // Quantas porcoes preciso para bater o target do macro
+        servings = targetGrams / pick[macroKey]
+      } else if (role === 'vegetable' || role === 'vegetable2') {
+        // Legumes: 1-2 porcoes fixas (baixa caloria, alto volume)
+        servings = 1 + Math.random() * 0.5
+      } else if (role === 'snack') {
+        servings = 1
+      } else {
+        servings = calLeft > 0 ? calLeft / (pick.calories || 100) : 1
+      }
+
+      // Limitar porcoes a range razoavel
+      servings = Math.max(0.5, Math.min(3, servings))
+      servings = Math.round(servings * 2) / 2 // Arredonda para 0.5
+
+      const item = makePlannedItem(pick, servings)
+      items.push(item)
+      usedFoodIds.add(pick.id)
+
+      proteinLeft -= item.protein
+      carbsLeft -= item.carbs
+      calLeft -= item.calories
     }
 
+    // Totais da refeicao
     const totalCalories = items.reduce((s, i) => s + i.calories, 0)
     const totalProtein = items.reduce((s, i) => s + i.protein, 0)
     const totalCarbs = items.reduce((s, i) => s + i.carbs, 0)
@@ -664,17 +734,61 @@ export function buildMealPlan(
     })
   }
 
-  const totalCalories = meals.reduce((s, m) => s + m.totalCalories, 0)
+  // ---------- Validacao pos-montagem ----------
   const totalProtein = meals.reduce((s, m) => s + m.totalProtein, 0)
   const totalCarbs = meals.reduce((s, m) => s + m.totalCarbs, 0)
   const totalFat = meals.reduce((s, m) => s + m.totalFat, 0)
+  const totalCalories = meals.reduce((s, m) => s + m.totalCalories, 0)
+
+  // Se proteina ficou mais de 15% abaixo da meta, tentar compensar
+  // substituindo o item de menor proteina do almoco/jantar por uma carne
+  if (totalProtein < macros.protein * 0.85) {
+    for (const meal of meals) {
+      if (meal.mealType === 'lanche') continue
+      // Encontrar item com menor proteina
+      let worstIdx = -1
+      let worstProtein = Infinity
+      for (let i = 0; i < meal.items.length; i++) {
+        // Nao substituir alimentos fixos (os primeiros N itens)
+        const fixedCount = fixedByMeal.get(meal.mealType)?.length || 0
+        if (i < fixedCount) continue
+        if (meal.items[i].protein < worstProtein) {
+          worstProtein = meal.items[i].protein
+          worstIdx = i
+        }
+      }
+      if (worstIdx >= 0) {
+        const replacement = pickFrom(proteinFoods, usedFoodIds)
+        if (replacement) {
+          const oldItem = meal.items[worstIdx]
+          // Ajustar porcoes para manter calorias similares
+          const servings = Math.max(0.5, Math.min(3, Math.round((oldItem.calories / replacement.calories) * 2) / 2))
+          const newItem = makePlannedItem(replacement, servings)
+          meal.items[worstIdx] = newItem
+          usedFoodIds.add(replacement.id)
+
+          // Recalcular totais da refeicao
+          meal.totalCalories = Math.round(meal.items.reduce((s, i) => s + i.calories, 0))
+          meal.totalProtein = Math.round(meal.items.reduce((s, i) => s + i.protein, 0) * 10) / 10
+          meal.totalCarbs = Math.round(meal.items.reduce((s, i) => s + i.carbs, 0) * 10) / 10
+          meal.totalFat = Math.round(meal.items.reduce((s, i) => s + i.fat, 0) * 10) / 10
+        }
+      }
+    }
+  }
+
+  // Recalcular totais finais
+  const finalCalories = meals.reduce((s, m) => s + m.totalCalories, 0)
+  const finalProtein = meals.reduce((s, m) => s + m.totalProtein, 0)
+  const finalCarbs = meals.reduce((s, m) => s + m.totalCarbs, 0)
+  const finalFat = meals.reduce((s, m) => s + m.totalFat, 0)
 
   return {
     date,
-    totalCalories,
-    totalProtein: Math.round(totalProtein * 10) / 10,
-    totalCarbs: Math.round(totalCarbs * 10) / 10,
-    totalFat: Math.round(totalFat * 10) / 10,
+    totalCalories: finalCalories,
+    totalProtein: Math.round(finalProtein * 10) / 10,
+    totalCarbs: Math.round(finalCarbs * 10) / 10,
+    totalFat: Math.round(finalFat * 10) / 10,
     meals,
   }
 }
