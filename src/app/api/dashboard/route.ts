@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getDefaultUserId } from '@/lib/user'
 import { MEAL_TYPES } from '@/lib/constants'
 import type { DashboardData } from '@/types'
 
@@ -11,16 +12,17 @@ export async function GET(request: NextRequest) {
     const date =
       searchParams.get('date') || new Date().toISOString().split('T')[0]
 
-    if (!userId) {
+    const resolvedUserId = userId || await getDefaultUserId()
+    if (!resolvedUserId) {
       return NextResponse.json(
-        { error: 'userId e obrigatorio' },
-        { status: 400 }
+        { error: 'Nenhum usuario cadastrado' },
+        { status: 404 }
       )
     }
 
     // 1. Get user
     const user = await prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: resolvedUserId },
       select: { name: true, dailyCalTarget: true },
     })
 
@@ -35,9 +37,9 @@ export async function GET(request: NextRequest) {
 
     // 2. Get or create DailyLog
     const dailyLog = await prisma.dailyLog.upsert({
-      where: { userId_date: { userId, date } },
+      where: { userId_date: { userId: resolvedUserId, date } },
       create: {
-        userId,
+        userId: resolvedUserId,
         date,
         caloriesTarget: target,
       },
@@ -54,7 +56,7 @@ export async function GET(request: NextRequest) {
 
     // 4. Get meal entries grouped by mealType
     const mealEntries = await prisma.mealEntry.findMany({
-      where: { userId, date },
+      where: { userId: resolvedUserId, date },
     })
 
     const meals = MEAL_TYPES.map(({ key, label }) => {
@@ -69,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     // 5. Get streak
     const streak = await prisma.streak.findUnique({
-      where: { userId },
+      where: { userId: resolvedUserId },
     })
 
     // 6. Calculate remaining

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getDefaultUserId } from '@/lib/user'
 
 // GET /api/streak — Get streak for user
 export async function GET(request: NextRequest) {
@@ -7,15 +8,16 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl
     const userId = searchParams.get('userId')
 
-    if (!userId) {
+    const resolvedUserId = userId || await getDefaultUserId()
+    if (!resolvedUserId) {
       return NextResponse.json(
-        { error: 'userId e obrigatorio' },
-        { status: 400 }
+        { error: 'Nenhum usuario cadastrado' },
+        { status: 404 }
       )
     }
 
     const streak = await prisma.streak.findUnique({
-      where: { userId },
+      where: { userId: resolvedUserId },
     })
 
     if (!streak) {

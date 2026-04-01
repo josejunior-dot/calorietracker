@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { mealEntrySchema } from '@/types'
 import { updateStreak } from '@/lib/streak'
+import { getDefaultUserId } from '@/lib/user'
 import { MEAL_TYPES } from '@/lib/constants'
 
 // GET /api/refeicoes — Get meal entries for a date
@@ -11,15 +12,23 @@ export async function GET(request: NextRequest) {
     const date = searchParams.get('date')
     const userId = searchParams.get('userId')
 
-    if (!date || !userId) {
+    if (!date) {
       return NextResponse.json(
-        { error: 'Parametros obrigatorios: date, userId' },
+        { error: 'Parametro obrigatorio: date' },
         { status: 400 }
       )
     }
 
+    const resolvedUserId = userId || await getDefaultUserId()
+    if (!resolvedUserId) {
+      return NextResponse.json(
+        { error: 'Nenhum usuario cadastrado' },
+        { status: 404 }
+      )
+    }
+
     const entries = await prisma.mealEntry.findMany({
-      where: { userId, date },
+      where: { userId: resolvedUserId, date },
       include: { food: true },
       orderBy: { createdAt: 'asc' },
     })
@@ -59,10 +68,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { userId } = body
 
-    if (!userId) {
+    const resolvedUserId = userId || await getDefaultUserId()
+    if (!resolvedUserId) {
       return NextResponse.json(
-        { error: 'userId e obrigatorio' },
-        { status: 400 }
+        { error: 'Nenhum usuario cadastrado' },
+        { status: 404 }
       )
     }
 
@@ -95,7 +105,7 @@ export async function POST(request: NextRequest) {
     // Create entry
     const entry = await prisma.mealEntry.create({
       data: {
-        userId,
+        userId: resolvedUserId,
         foodId,
         date,
         mealType,
@@ -109,10 +119,10 @@ export async function POST(request: NextRequest) {
     })
 
     // Recalculate DailyLog totals for this date
-    await recalculateDailyLog(userId, date)
+    await recalculateDailyLog(resolvedUserId, date)
 
     // Update streak
-    await updateStreak(userId, date)
+    await updateStreak(resolvedUserId, date)
 
     return NextResponse.json(entry, { status: 201 })
   } catch (error) {

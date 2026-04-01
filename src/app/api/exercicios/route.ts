@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { exerciseEntrySchema } from '@/types'
+import { getDefaultUserId } from '@/lib/user'
 
 // GET /api/exercicios — Search exercises or get entries for a date
 export async function GET(request: NextRequest) {
@@ -23,9 +24,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Get exercise entries for a date
-    if (date && userId) {
+    if (date) {
+      const resolvedUserId = userId || await getDefaultUserId()
+      if (!resolvedUserId) {
+        return NextResponse.json(
+          { error: 'Nenhum usuario cadastrado' },
+          { status: 404 }
+        )
+      }
+
       const entries = await prisma.exerciseEntry.findMany({
-        where: { userId, date },
+        where: { userId: resolvedUserId, date },
         include: { exercise: true },
         orderBy: { createdAt: 'asc' },
       })
@@ -54,10 +63,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { userId } = body
 
-    if (!userId) {
+    const resolvedUserId = userId || await getDefaultUserId()
+    if (!resolvedUserId) {
       return NextResponse.json(
-        { error: 'userId e obrigatorio' },
-        { status: 400 }
+        { error: 'Nenhum usuario cadastrado' },
+        { status: 404 }
       )
     }
 
@@ -76,7 +86,7 @@ export async function POST(request: NextRequest) {
     const [exercise, user] = await Promise.all([
       prisma.exercise.findUnique({ where: { id: exerciseId } }),
       prisma.user.findUnique({
-        where: { id: userId },
+        where: { id: resolvedUserId },
         select: { weight: true, dailyCalTarget: true },
       }),
     ])
@@ -102,7 +112,7 @@ export async function POST(request: NextRequest) {
     // Create entry
     const entry = await prisma.exerciseEntry.create({
       data: {
-        userId,
+        userId: resolvedUserId,
         exerciseId,
         date,
         durationMin,
@@ -112,7 +122,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Update DailyLog.caloriesBurned
-    await recalculateExerciseDailyLog(userId, date, user.dailyCalTarget)
+    await recalculateExerciseDailyLog(resolvedUserId, date, user.dailyCalTarget)
 
     return NextResponse.json(entry, { status: 201 })
   } catch (error) {
