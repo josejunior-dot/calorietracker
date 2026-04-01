@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import {
   Wand2, RefreshCw, CalendarDays, Check, ChevronRight,
   Flame, Beef, Wheat, Droplets, ArrowLeftRight, X, Search,
-  SlidersHorizontal,
+  SlidersHorizontal, Pin,
 } from "lucide-react"
 import { toast } from "sonner"
 import { toISODate, formatDateShort } from "@/lib/date"
@@ -49,6 +50,16 @@ export default function DietaPage() {
   const [proteinPct, setProteinPct] = useState(25)
   const [carbsPct, setCarbsPct] = useState(50)
   const [fatPct, setFatPct] = useState(25)
+
+  // Base alimentar count
+  const [fixedCount, setFixedCount] = useState(0)
+
+  useEffect(() => {
+    fetch("/api/base-alimentar")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setFixedCount(Array.isArray(data) ? data.length : 0))
+      .catch(() => {})
+  }, [])
 
   // Substituição
   const [swapTarget, setSwapTarget] = useState<{ mealIdx: number; itemIdx: number } | null>(null)
@@ -186,6 +197,19 @@ export default function DietaPage() {
           </button>
         )}
       </div>
+
+      {/* Link Base Alimentar */}
+      <Link
+        href="/dieta/base"
+        className="flex items-center justify-between px-4 py-3 bg-card rounded-xl border border-border hover:bg-muted/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Pin className="w-4 h-4 text-amber-500" />
+          <span className="text-sm font-medium text-foreground">Base Alimentar</span>
+          <span className="text-xs text-muted-foreground">({fixedCount} itens fixos)</span>
+        </div>
+        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+      </Link>
 
       {/* Macro Config */}
       {showConfig && (

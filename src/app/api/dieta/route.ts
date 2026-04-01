@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getDefaultUserId } from '@/lib/user'
-import { buildMealPlan, type DietPreferences } from '@/lib/diet-builder'
+import { buildMealPlan, type DietPreferences, type FixedFoodEntry } from '@/lib/diet-builder'
 import { toISODate } from '@/lib/date'
 import { updateStreak } from '@/lib/streak'
 
@@ -67,8 +67,32 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Buscar alimentos fixos (Base Alimentar) do usuario
+    const fixedFoodsRaw = await prisma.fixedFood.findMany({
+      where: { userId },
+      include: { food: true },
+    })
+
+    const fixedFoods: FixedFoodEntry[] = fixedFoodsRaw.map((ff) => ({
+      foodId: ff.foodId,
+      mealType: ff.mealType,
+      servings: ff.servings,
+      food: {
+        id: ff.food.id,
+        name: ff.food.name,
+        calories: ff.food.calories,
+        protein: ff.food.protein,
+        carbs: ff.food.carbs,
+        fat: ff.food.fat,
+        servingLabel: ff.food.servingLabel,
+        noomColor: ff.food.noomColor,
+        servingSize: ff.food.servingSize,
+        category: ff.food.category,
+      },
+    }))
+
     const date = toISODate(new Date())
-    const plan = buildMealPlan(foods, prefs, date)
+    const plan = buildMealPlan(foods, prefs, date, fixedFoods.length > 0 ? fixedFoods : undefined)
 
     return NextResponse.json({ plan, preferences: prefs })
   } catch (error) {

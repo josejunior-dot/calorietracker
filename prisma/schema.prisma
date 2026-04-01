@@ -27,6 +27,7 @@ model User {
   exerciseEntries ExerciseEntry[]
   weightLogs      WeightLog[]
   dailyLogs       DailyLog[]
+  fixedFoods      FixedFood[]
   streak          Streak?
 }
 
@@ -51,6 +52,7 @@ model Food {
   createdAt    DateTime @default(now())
 
   mealEntries MealEntry[]
+  fixedFoods  FixedFood[]
 }
 
 model MealEntry {
@@ -128,6 +130,20 @@ model DailyLog {
   user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, date])
+}
+
+model FixedFood {
+  id        String @id @default(cuid())
+  userId    String
+  foodId    String
+  mealType  String   // cafe_da_manha | almoco | jantar | lanche | qualquer
+  servings  Float    @default(1)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+  food Food @relation(fields: [foodId], references: [id])
+
+  @@index([userId])
 }
 
 model Streak {

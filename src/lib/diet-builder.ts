@@ -139,12 +139,49 @@ function adjustServings(food: FoodRow, targetCalories: number): number {
   return Math.round(clamped * 2) / 2
 }
 
+// ---------- Tipo para alimentos fixos (Base Alimentar) ----------
+
+export type FixedFoodEntry = {
+  foodId: string
+  mealType: string
+  servings: number
+  food: {
+    id: string
+    name: string
+    calories: number
+    protein: number
+    carbs: number
+    fat: number
+    servingLabel: string
+    noomColor: string
+    servingSize: number
+    category: string
+  }
+}
+
+/** Converte um FixedFoodEntry em PlannedItem */
+function fixedFoodToPlannedItem(entry: FixedFoodEntry): PlannedItem {
+  const { food, servings } = entry
+  return {
+    foodId: food.id,
+    name: food.name,
+    servings,
+    servingLabel: food.servingLabel,
+    calories: Math.round(food.calories * servings),
+    protein: Math.round(food.protein * servings * 10) / 10,
+    carbs: Math.round(food.carbs * servings * 10) / 10,
+    fat: Math.round(food.fat * servings * 10) / 10,
+    noomColor: food.noomColor,
+  }
+}
+
 // ---------- Builder principal ----------
 
 export function buildMealPlan(
   foods: FoodRow[],
   prefs: DietPreferences,
-  date: string
+  date: string,
+  fixedFoods?: FixedFoodEntry[]
 ): MealPlan {
   const usedFoodIds = new Set<string>()
   const nonCustomFoods = foods.filter((f) => !f.isCustom)
@@ -158,73 +195,119 @@ export function buildMealPlan(
     byCategory.set(f.category, list)
   }
 
+  // ---------- Pre-popular refeicoes com alimentos fixos ----------
+  const fixedByMeal = new Map<string, PlannedItem[]>()
+  const fixedCalsByMeal = new Map<string, number>()
+  const qualquerFoods: FixedFoodEntry[] = []
+
+  // Inicializar maps
+  for (const mealType of Object.keys(MEAL_DISTRIBUTION)) {
+    fixedByMeal.set(mealType, [])
+    fixedCalsByMeal.set(mealType, 0)
+  }
+
+  if (fixedFoods && fixedFoods.length > 0) {
+    for (const ff of fixedFoods) {
+      if (ff.mealType === 'qualquer') {
+        qualquerFoods.push(ff)
+      } else if (fixedByMeal.has(ff.mealType)) {
+        const item = fixedFoodToPlannedItem(ff)
+        fixedByMeal.get(ff.mealType)!.push(item)
+        fixedCalsByMeal.set(ff.mealType, (fixedCalsByMeal.get(ff.mealType) || 0) + item.calories)
+        usedFoodIds.add(ff.foodId)
+      }
+    }
+
+    // Alocar alimentos "qualquer" na refeicao com mais calorias restantes
+    for (const ff of qualquerFoods) {
+      let bestMeal = 'almoco'
+      let bestRemaining = -Infinity
+      for (const [mealType, fraction] of Object.entries(MEAL_DISTRIBUTION)) {
+        const mealCalTarget = prefs.dailyCalTarget * fraction
+        const used = fixedCalsByMeal.get(mealType) || 0
+        const remaining = mealCalTarget - used
+        if (remaining > bestRemaining) {
+          bestRemaining = remaining
+          bestMeal = mealType
+        }
+      }
+      const item = fixedFoodToPlannedItem(ff)
+      fixedByMeal.get(bestMeal)!.push(item)
+      fixedCalsByMeal.set(bestMeal, (fixedCalsByMeal.get(bestMeal) || 0) + item.calories)
+      usedFoodIds.add(ff.foodId)
+    }
+  }
+
   const meals: PlannedMeal[] = []
 
   for (const [mealType, fraction] of Object.entries(MEAL_DISTRIBUTION)) {
     const mealCalTarget = prefs.dailyCalTarget * fraction
     const template = MEAL_TEMPLATES[mealType]
-    const items: PlannedItem[] = []
-    let mealCalUsed = 0
 
-    // Numero de slots obrigatorios
-    const requiredSlots = template.filter((s) => !s.optional).length
-    const allSlots = template.length
+    // Comecar com itens fixos ja alocados
+    const items: PlannedItem[] = [...(fixedByMeal.get(mealType) || [])]
+    let mealCalUsed = fixedCalsByMeal.get(mealType) || 0
 
-    for (let si = 0; si < allSlots; si++) {
-      const slot = template[si]
+    // Se as calorias fixas ja excedem o budget, pular preenchimento
+    if (mealCalUsed < mealCalTarget) {
+      const allSlots = template.length
 
-      // Quanto de caloria alocar para este slot
-      const remainingSlots = allSlots - si
-      const slotCalTarget = (mealCalTarget - mealCalUsed) / remainingSlots
+      for (let si = 0; si < allSlots; si++) {
+        const slot = template[si]
 
-      // Se o slot e opcional e ja estamos perto da meta, pular
-      if (slot.optional && mealCalUsed >= mealCalTarget * 0.85) {
-        continue
+        // Quanto de caloria alocar para este slot
+        const remainingSlots = allSlots - si
+        const slotCalTarget = (mealCalTarget - mealCalUsed) / remainingSlots
+
+        // Se o slot e opcional e ja estamos perto da meta, pular
+        if (slot.optional && mealCalUsed >= mealCalTarget * 0.85) {
+          continue
+        }
+
+        // Buscar candidatos das categorias do slot (excluir alimentos fixos ja usados)
+        let candidates: FoodRow[] = []
+        for (const cat of slot.categories) {
+          const catFoods = byCategory.get(cat) || []
+          candidates.push(...catFoods.filter((f) => !usedFoodIds.has(f.id)))
+        }
+
+        if (candidates.length === 0) {
+          // Fallback: tentar qualquer alimento nao usado
+          candidates = goalFiltered.filter((f) => !usedFoodIds.has(f.id))
+        }
+
+        if (candidates.length === 0) continue
+
+        // Embaralhar para variedade
+        shuffle(candidates)
+
+        // Escolher o melhor candidato (mais proximo da caloria do slot)
+        candidates.sort((a, b) => {
+          const diffA = Math.abs(a.calories - slotCalTarget)
+          const diffB = Math.abs(b.calories - slotCalTarget)
+          return diffA - diffB
+        })
+
+        // Pegar um dos 3 primeiros para manter variedade
+        const pick = candidates[Math.floor(Math.random() * Math.min(3, candidates.length))]
+        const servings = adjustServings(pick, slotCalTarget)
+        const itemCals = pick.calories * servings
+
+        items.push({
+          foodId: pick.id,
+          name: pick.name,
+          servings,
+          servingLabel: pick.servingLabel,
+          calories: Math.round(itemCals),
+          protein: Math.round(pick.protein * servings * 10) / 10,
+          carbs: Math.round(pick.carbs * servings * 10) / 10,
+          fat: Math.round(pick.fat * servings * 10) / 10,
+          noomColor: pick.noomColor,
+        })
+
+        usedFoodIds.add(pick.id)
+        mealCalUsed += itemCals
       }
-
-      // Buscar candidatos das categorias do slot
-      let candidates: FoodRow[] = []
-      for (const cat of slot.categories) {
-        const catFoods = byCategory.get(cat) || []
-        candidates.push(...catFoods.filter((f) => !usedFoodIds.has(f.id)))
-      }
-
-      if (candidates.length === 0) {
-        // Fallback: tentar qualquer alimento nao usado
-        candidates = goalFiltered.filter((f) => !usedFoodIds.has(f.id))
-      }
-
-      if (candidates.length === 0) continue
-
-      // Embaralhar para variedade
-      shuffle(candidates)
-
-      // Escolher o melhor candidato (mais proximo da caloria do slot)
-      candidates.sort((a, b) => {
-        const diffA = Math.abs(a.calories - slotCalTarget)
-        const diffB = Math.abs(b.calories - slotCalTarget)
-        return diffA - diffB
-      })
-
-      // Pegar um dos 3 primeiros para manter variedade
-      const pick = candidates[Math.floor(Math.random() * Math.min(3, candidates.length))]
-      const servings = adjustServings(pick, slotCalTarget)
-      const itemCals = pick.calories * servings
-
-      items.push({
-        foodId: pick.id,
-        name: pick.name,
-        servings,
-        servingLabel: pick.servingLabel,
-        calories: Math.round(itemCals),
-        protein: Math.round(pick.protein * servings * 10) / 10,
-        carbs: Math.round(pick.carbs * servings * 10) / 10,
-        fat: Math.round(pick.fat * servings * 10) / 10,
-        noomColor: pick.noomColor,
-      })
-
-      usedFoodIds.add(pick.id)
-      mealCalUsed += itemCals
     }
 
     const totalCalories = items.reduce((s, i) => s + i.calories, 0)
