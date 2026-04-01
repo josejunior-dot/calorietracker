@@ -103,6 +103,20 @@ const NAME_SUITABILITY: Record<string, MealType[]> = {
   'Chá sem açúcar':                ['cafe_da_manha', 'lanche'],
   'Isotônico':                     ['lanche'],
 
+  // ── Comida Árabe ──
+  'Kibe assado':                   ['almoco', 'jantar'],
+  'Kibe frito':                    ['almoco', 'jantar', 'lanche'],
+  'Kibe cru':                      ['almoco', 'jantar'],
+  'Charuto de repolho':            ['almoco', 'jantar'],
+  'Charuto de uva':                ['almoco', 'jantar'],
+  'Esfiha aberta de carne':        ['almoco', 'jantar', 'lanche'],
+  'Esfiha aberta de queijo':       ['almoco', 'jantar', 'lanche'],
+  'Homus':                         ['almoco', 'jantar', 'lanche'],
+  'Tabule':                        ['almoco', 'jantar'],
+  'Coalhada seca':                 ['almoco', 'jantar', 'lanche'],
+  'Babaganuche':                   ['almoco', 'jantar', 'lanche'],
+  'Kafta grelhada':                ['almoco', 'jantar'],
+
   // ── Condimentos (acompanham qualquer refeição) ──
   'Azeite de oliva':               ['almoco', 'jantar'],
   'Ketchup':                       ['almoco', 'jantar', 'lanche'],

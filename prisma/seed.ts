@@ -215,6 +215,20 @@ const foods = [
   f('Estrogonofe de frango', 'refeicoes', 200, '1 porção', 310, 24.0, 10.0, 19.0, 0.5, 3.5, 520),
   f('Arroz carreteiro', 'refeicoes', 200, '1 porção', 340, 16.0, 38.0, 13.0, 1.8, 1.0, 480),
 
+  // ── Comida Árabe (12) ──
+  f('Kibe assado', 'refeicoes', 100, '1 unidade grande', 226, 14.5, 12.0, 13.5, 1.2, 1.0, 380),
+  f('Kibe frito', 'refeicoes', 80, '1 unidade', 240, 10.5, 14.0, 15.8, 0.8, 0.8, 350),
+  f('Kibe cru', 'refeicoes', 100, '1 porção', 160, 15.0, 8.0, 7.5, 1.0, 0.5, 280),
+  f('Charuto de repolho', 'refeicoes', 80, '2 unidades', 145, 7.5, 14.0, 6.8, 1.5, 1.2, 320),
+  f('Charuto de uva', 'refeicoes', 80, '3 unidades', 165, 4.2, 18.0, 8.5, 1.2, 2.0, 350),
+  f('Esfiha aberta de carne', 'refeicoes', 70, '1 unidade', 175, 7.0, 18.5, 8.0, 0.6, 1.0, 310),
+  f('Esfiha aberta de queijo', 'refeicoes', 70, '1 unidade', 190, 6.5, 17.0, 10.5, 0.4, 1.5, 290),
+  f('Homus', 'refeicoes', 60, '3 colheres', 100, 4.8, 9.5, 5.0, 2.5, 0.3, 150),
+  f('Tabule', 'refeicoes', 100, '1 porção', 65, 1.8, 10.5, 2.0, 2.5, 0.5, 180),
+  f('Coalhada seca', 'refeicoes', 50, '2 colheres', 62, 4.5, 2.0, 4.0, 0, 2.0, 120),
+  f('Babaganuche', 'refeicoes', 60, '3 colheres', 78, 1.5, 5.0, 5.8, 2.0, 1.0, 100),
+  f('Kafta grelhada', 'carnes', 100, '2 espetos', 230, 18.0, 2.0, 16.5, 0.5, 0.5, 420),
+
   // ── Industrializados/Suplementos (10) ──
   f('Barra de cereal', 'industrializados', 25, '1 unidade', 100, 1.5, 18.0, 2.5, 1.0, 7.0, 50),
   f('Whey protein (scoop)', 'industrializados', 30, '1 scoop', 120, 24.0, 3.0, 1.5, 0, 1.5, 80),

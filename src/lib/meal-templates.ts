@@ -304,6 +304,36 @@ export const ALMOCO_TEMPLATES: MealTemplate[] = [
     ],
     tags: ['fit', 'high_protein'],
   },
+  {
+    name: 'Kibe Assado com Tabule',
+    items: [
+      { foodName: 'Kibe assado', role: 'principal', defaultServings: 2, adjustable: true },
+      { foodName: 'Tabule', role: 'acompanhamento', defaultServings: 1.5, adjustable: true },
+      { foodName: 'Homus', role: 'complemento', defaultServings: 1, adjustable: false },
+      { foodName: 'Alface', role: 'complemento', defaultServings: 1, adjustable: false },
+    ],
+    tags: ['equilibrado', 'tradicional', 'high_protein'],
+  },
+  {
+    name: 'Kafta com Arroz e Homus',
+    items: [
+      { foodName: 'Kafta grelhada', role: 'principal', defaultServings: 1.5, adjustable: true },
+      { foodName: 'Arroz branco cozido', role: 'acompanhamento', defaultServings: 1.5, adjustable: true },
+      { foodName: 'Homus', role: 'complemento', defaultServings: 1, adjustable: false },
+      { foodName: 'Tomate', role: 'complemento', defaultServings: 0.5, adjustable: false },
+    ],
+    tags: ['equilibrado', 'tradicional', 'high_protein'],
+  },
+  {
+    name: 'Charuto com Coalhada',
+    items: [
+      { foodName: 'Charuto de repolho', role: 'principal', defaultServings: 3, adjustable: true },
+      { foodName: 'Arroz branco cozido', role: 'acompanhamento', defaultServings: 1.5, adjustable: true },
+      { foodName: 'Coalhada seca', role: 'complemento', defaultServings: 1, adjustable: false },
+      { foodName: 'Alface', role: 'complemento', defaultServings: 1, adjustable: false },
+    ],
+    tags: ['equilibrado', 'tradicional'],
+  },
 ]
 
 // ============================================================
@@ -410,6 +440,25 @@ export const JANTAR_TEMPLATES: MealTemplate[] = [
     ],
     tags: ['fit', 'high_protein'],
   },
+  {
+    name: 'Kibe com Tabule',
+    items: [
+      { foodName: 'Kibe assado', role: 'principal', defaultServings: 1.5, adjustable: true },
+      { foodName: 'Tabule', role: 'acompanhamento', defaultServings: 1.5, adjustable: true },
+      { foodName: 'Babaganuche', role: 'complemento', defaultServings: 1, adjustable: false },
+    ],
+    tags: ['equilibrado', 'tradicional'],
+  },
+  {
+    name: 'Kafta com Salada',
+    items: [
+      { foodName: 'Kafta grelhada', role: 'principal', defaultServings: 1.5, adjustable: true },
+      { foodName: 'Alface', role: 'acompanhamento', defaultServings: 1, adjustable: false },
+      { foodName: 'Tomate', role: 'complemento', defaultServings: 1, adjustable: false },
+      { foodName: 'Homus', role: 'complemento', defaultServings: 1, adjustable: false },
+    ],
+    tags: ['low_carb', 'high_protein'],
+  },
 ]
 
 // ============================================================
@@ -502,6 +551,23 @@ export const LANCHE_TEMPLATES: MealTemplate[] = [
       { foodName: 'Limão', role: 'complemento', defaultServings: 1, adjustable: false },
     ],
     tags: ['low_carb', 'cetogenica', 'rapido'],
+  },
+  {
+    name: 'Esfihas com Homus',
+    items: [
+      { foodName: 'Esfiha aberta de carne', role: 'principal', defaultServings: 2, adjustable: true },
+      { foodName: 'Homus', role: 'acompanhamento', defaultServings: 1, adjustable: false },
+      { foodName: 'Coalhada seca', role: 'complemento', defaultServings: 1, adjustable: false },
+    ],
+    tags: ['tradicional', 'equilibrado'],
+  },
+  {
+    name: 'Kibe Frito com Coalhada',
+    items: [
+      { foodName: 'Kibe frito', role: 'principal', defaultServings: 2, adjustable: true },
+      { foodName: 'Coalhada seca', role: 'acompanhamento', defaultServings: 1, adjustable: false },
+    ],
+    tags: ['tradicional', 'rapido'],
   },
 ]
 
