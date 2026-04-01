@@ -549,7 +549,12 @@ const MEAL_STRUCTURE: Record<string, MealRole[]> = {
 }
 
 /** Alimentos fontes de gordura saudavel */
-const FAT_SOURCE_CATEGORIES = new Set(['oleos', 'industrializados'])
+const FAT_SOURCE_CATEGORIES = new Set(['oleos'])
+const FAT_SOURCE_NAMES = new Set([
+  'Azeite de oliva', 'Abacate', 'Pasta de amendoim', 'Castanha de caju',
+  'Mix de nuts', 'Manteiga', 'Cream cheese', 'Maionese', 'Queijo prato',
+  'Queijo mussarela', 'Requeijão cremoso', 'Óleo de soja',
+])
 
 // ==================== BUILDER PRINCIPAL ====================
 // Abordagem: orcamento rigido de macros com tracking contínuo.
@@ -781,6 +786,14 @@ export function buildMealPlan(
       let candidates: FoodRow[] = []
       for (const cat of roleDef.cats) {
         candidates.push(...(byCat.get(cat) || []))
+      }
+      // Para fontes de gordura, incluir tambem alimentos por nome
+      if (roleDef.macro === 'fat') {
+        const fatByName = nonCustom.filter(f => FAT_SOURCE_NAMES.has(f.name) && f.fat >= 5)
+        candidates.push(...fatByName)
+        // Deduplicar
+        const seen = new Set<string>()
+        candidates = candidates.filter(f => { if (seen.has(f.id)) return false; seen.add(f.id); return true })
       }
 
       // Para cafe, filtrar proteinas pesadas
