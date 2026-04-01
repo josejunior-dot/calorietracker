@@ -4,6 +4,8 @@
 // carboidratos e gordura como variavel de fechamento calorico.
 // ============================================================
 
+import { isSuitableForMeal } from './meal-suitability'
+
 // ==================== TIPOS ====================
 
 export type NutritionStrategy =
@@ -584,15 +586,24 @@ function strategyScore(food: FoodRow, strategy: NutritionStrategy): number {
   }
 }
 
-/** Seleciona melhor alimento para um papel, respeitando orcamento restante */
+/** Seleciona melhor alimento para um papel, respeitando orcamento restante e adequacao a refeicao */
 function selectBestFood(
   candidates: FoodRow[],
   usedIds: Set<string>,
   budget: { protein: number; carbs: number; fat: number; calories: number },
   macroRole: 'protein' | 'carbs' | 'fat' | 'volume',
   strategy: NutritionStrategy,
+  mealType?: string,
 ): { food: FoodRow; servings: number } | null {
-  const available = candidates.filter(f => !usedIds.has(f.id) && strategyScore(f, strategy) > -100)
+  let available = candidates.filter(f => !usedIds.has(f.id) && strategyScore(f, strategy) > -100)
+
+  // Filtrar por adequacao a refeicao (habitos brasileiros)
+  if (mealType) {
+    const suitable = available.filter(f => isSuitableForMeal(f.name, f.category, mealType))
+    if (suitable.length > 0) available = suitable
+    // Se nao sobrou nada adequado, usa todos (fallback)
+  }
+
   if (available.length === 0) return null
 
   // Ordenar por compatibilidade com estrategia
@@ -805,7 +816,7 @@ export function buildMealPlan(
         if (light.length > 0) candidates = light
       }
 
-      const result = selectBestFood(candidates, usedFoodIds, adjustedBudget, roleDef.macro, macros.strategy)
+      const result = selectBestFood(candidates, usedFoodIds, adjustedBudget, roleDef.macro, macros.strategy, mealType)
       if (!result) continue
 
       const item = makePlannedItem(result.food, result.servings)
@@ -883,6 +894,63 @@ export function buildMealPlan(
           recalcMeal(meal)
           break // Uma substituicao por vez
         }
+      }
+    }
+  }
+
+  // ---------- Fechamento calorico com gordura ----------
+  // Se calorias ficaram >10% abaixo da meta E gordura abaixo da meta,
+  // adicionar fontes de gordura saudavel distribuidas nas refeicoes principais
+  tCal = meals.reduce((s, m) => s + m.totalCalories, 0)
+  tF = meals.reduce((s, m) => s + m.totalFat, 0)
+  const calDeficit = dailyCalTarget - tCal
+  const fatDeficit = macros.fat - tF
+
+  if (calDeficit > dailyCalTarget * 0.08 && fatDeficit > 10) {
+    // Fontes de gordura saudavel por nome
+    const fatCandidates = nonCustom.filter(f =>
+      FAT_SOURCE_NAMES.has(f.name) && f.fat >= 5 && !usedFoodIds.has(f.id)
+    )
+    shuffle(fatCandidates)
+
+    // Distribuir gordura entre almoco e jantar
+    const targetMeals = ['almoco', 'jantar']
+    let fatToAdd = fatDeficit
+
+    for (const mt of targetMeals) {
+      if (fatToAdd <= 5) break
+      const meal = meals.find(m => m.mealType === mt)
+      if (!meal) continue
+
+      const candidate = fatCandidates.find(f =>
+        !usedFoodIds.has(f.id) && isSuitableForMeal(f.name, f.category, mt)
+      )
+      if (!candidate) continue
+
+      // Calcular porcoes para cobrir metade do deficit restante
+      const targetFat = fatToAdd * 0.6
+      let servings = Math.max(0.5, Math.min(2, targetFat / candidate.fat))
+      servings = Math.round(servings * 2) / 2
+
+      const item = makePlannedItem(candidate, servings)
+      meal.items.push(item)
+      usedFoodIds.add(candidate.id)
+      recalcMeal(meal)
+      fatToAdd -= item.fat
+    }
+
+    // Se ainda falta, tentar no lanche com oleaginosas
+    if (fatToAdd > 8) {
+      const lanche = meals.find(m => m.mealType === 'lanche')
+      const nutCandidate = fatCandidates.find(f =>
+        !usedFoodIds.has(f.id) && isSuitableForMeal(f.name, f.category, 'lanche')
+      )
+      if (lanche && nutCandidate) {
+        const servings = Math.max(0.5, Math.min(1.5, Math.round((fatToAdd / nutCandidate.fat) * 2) / 2))
+        const item = makePlannedItem(nutCandidate, servings)
+        lanche.items.push(item)
+        usedFoodIds.add(nutCandidate.id)
+        recalcMeal(lanche)
       }
     }
   }
