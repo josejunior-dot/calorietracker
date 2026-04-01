@@ -31,16 +31,10 @@ export function DurationInput({ exercise, date, onConfirm, onCancel }: DurationI
     setLoading(true)
 
     try {
-      // Fetch userId
-      const perfilRes = await fetch("/api/perfil")
-      if (!perfilRes.ok) return
-      const perfil = await perfilRes.json()
-
       const res = await fetch("/api/exercicios", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: perfil.id,
           exerciseId: exercise.id,
           date,
           durationMin: duration,

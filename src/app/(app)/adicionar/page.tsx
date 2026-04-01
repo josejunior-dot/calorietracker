@@ -42,9 +42,6 @@ function AdicionarContent() {
   const [mealType, setMealType] = useState(initialMeal)
   const [showMealPicker, setShowMealPicker] = useState(!initialMeal)
 
-  // TODO: Replace with actual userId
-  const userId = "demo-user"
-
   const handleFoodSelect = (food: Food) => {
     if (!mealType) {
       setSelectedFood(food)
@@ -150,7 +147,7 @@ function AdicionarContent() {
 
             {/* Food search */}
             {(mealType || !showMealPicker) && (
-              <FoodSearch onSelect={handleFoodSelect} userId={userId} />
+              <FoodSearch onSelect={handleFoodSelect} />
             )}
           </>
         ) : (

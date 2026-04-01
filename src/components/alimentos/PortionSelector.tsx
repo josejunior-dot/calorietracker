@@ -71,14 +71,10 @@ export function PortionSelector({
   const handleConfirm = async () => {
     setSaving(true)
     try {
-      // TODO: Replace with actual userId
-      const userId = "demo-user"
-
       const res = await fetch("/api/refeicoes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
           foodId: food.id,
           date,
           mealType,

@@ -32,27 +32,15 @@ function ExerciciosContent() {
   const [entries, setEntries] = useState<ExerciseEntry[]>([])
   const [totalBurned, setTotalBurned] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [userId, setUserId] = useState<string | null>(null)
 
   // Add flow states
   const [showSearch, setShowSearch] = useState(false)
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null)
 
-  // Fetch userId once
-  useEffect(() => {
-    fetch("/api/perfil")
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.id) setUserId(data.id)
-      })
-      .catch(() => {})
-  }, [])
-
   const fetchEntries = useCallback(async () => {
-    if (!userId) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/exercicios?date=${date}&userId=${userId}`)
+      const res = await fetch(`/api/exercicios?date=${date}`)
       if (res.ok) {
         const data = await res.json()
         setEntries(data.entries || [])
@@ -63,11 +51,11 @@ function ExerciciosContent() {
     } finally {
       setLoading(false)
     }
-  }, [date, userId])
+  }, [date])
 
   useEffect(() => {
-    if (userId) fetchEntries()
-  }, [fetchEntries, userId])
+    fetchEntries()
+  }, [fetchEntries])
 
   const handleDateChange = (newDate: string) => {
     setDate(newDate)

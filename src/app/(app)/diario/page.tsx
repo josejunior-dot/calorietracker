@@ -62,9 +62,7 @@ function DiarioContent() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      // TODO: Replace with actual userId
-      const userId = "demo-user"
-      const res = await fetch(`/api/refeicoes?date=${date}&userId=${userId}`)
+      const res = await fetch(`/api/refeicoes?date=${date}`)
       if (res.ok) {
         const json = await res.json()
         setData(json)
