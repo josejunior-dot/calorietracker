@@ -6,7 +6,7 @@ import { toISODate } from '@/lib/date'
 import { updateStreak } from '@/lib/streak'
 
 // GET /api/dieta — Gerar sugestao de dieta
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const userId = await getDefaultUserId()
     if (!userId) {
@@ -35,10 +35,15 @@ export async function GET() {
 
     const dailyCal = user.dailyCalTarget ?? 2000
 
-    // Calcular metas de macros: proteina 25%, carbs 50%, gordura 25%
-    const proteinTarget = Math.round((dailyCal * 0.25) / 4) // 4 cal/g
-    const carbsTarget = Math.round((dailyCal * 0.50) / 4)   // 4 cal/g
-    const fatTarget = Math.round((dailyCal * 0.25) / 9)     // 9 cal/g
+    // Ler proporções de macros da query string (ou usar padrão)
+    const { searchParams } = request.nextUrl
+    const proteinPct = Math.min(60, Math.max(10, parseInt(searchParams.get('proteinPct') || '25')))
+    const carbsPct = Math.min(70, Math.max(10, parseInt(searchParams.get('carbsPct') || '50')))
+    const fatPct = Math.min(50, Math.max(10, parseInt(searchParams.get('fatPct') || '25')))
+
+    const proteinTarget = Math.round((dailyCal * proteinPct / 100) / 4)
+    const carbsTarget = Math.round((dailyCal * carbsPct / 100) / 4)
+    const fatTarget = Math.round((dailyCal * fatPct / 100) / 9)
 
     const prefs: DietPreferences = {
       dailyCalTarget: dailyCal,
@@ -46,7 +51,7 @@ export async function GET() {
       carbsTarget,
       fatTarget,
       goal: (user.goal as DietPreferences['goal']) || 'manter',
-      preferHighProtein: user.goal === 'ganhar',
+      preferHighProtein: proteinPct >= 30,
     }
 
     // Buscar todos os alimentos nao-custom do banco
