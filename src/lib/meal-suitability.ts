@@ -90,9 +90,9 @@ const NAME_SUITABILITY: Record<string, MealType[]> = {
   'Mix de nuts':                   ['lanche'],
   'Brigadeiro':                    ['lanche'],
 
-  // ── Açaí/Açaí com granola → lanche, NÃO almoço ──
-  'Açaí (polpa)':                  ['lanche', 'cafe_da_manha'],
-  'Açaí com granola':              ['lanche', 'cafe_da_manha'],
+  // ── Açaí → apenas lanche (evitar repetição café+lanche) ──
+  'Açaí (polpa)':                  ['lanche'],
+  'Açaí com granola':              ['lanche'],
 
   // ── Bebidas ──
   'Refrigerante cola':             ['almoco', 'jantar', 'lanche'],

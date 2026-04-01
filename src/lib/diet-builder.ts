@@ -550,13 +550,61 @@ const MEAL_STRUCTURE: Record<string, MealRole[]> = {
   lanche: ['dairy', 'fruit'],
 }
 
-/** Alimentos fontes de gordura saudavel */
-const FAT_SOURCE_CATEGORIES = new Set(['oleos'])
-const FAT_SOURCE_NAMES = new Set([
+/** Fontes de gordura priorizadas por qualidade (tier 1 = melhor) */
+const FAT_SOURCE_TIER1 = new Set([
   'Azeite de oliva', 'Abacate', 'Pasta de amendoim', 'Castanha de caju',
-  'Mix de nuts', 'Manteiga', 'Cream cheese', 'Maionese', 'Queijo prato',
-  'Queijo mussarela', 'Requeijão cremoso', 'Óleo de soja',
+  'Mix de nuts', 'Castanha do Pará',
 ])
+const FAT_SOURCE_TIER2 = new Set([
+  'Manteiga', 'Cream cheese', 'Queijo prato', 'Queijo mussarela',
+  'Requeijão cremoso',
+])
+const FAT_SOURCE_NAMES = new Set([...FAT_SOURCE_TIER1, ...FAT_SOURCE_TIER2])
+const FAT_SOURCE_CATEGORIES = new Set(['oleos'])
+
+/** Itens que NUNCA devem aparecer como item destacado na dieta */
+const BLACKLISTED_FOODS = new Set([
+  'Ketchup', 'Maionese', 'Mostarda', 'Sal', 'Açúcar',
+  'Óleo de soja', 'Óleo de canola', 'Óleo de girassol',
+  'Vinagre', 'Molho de soja', 'Molho shoyu',
+])
+
+/** Extrai tipo base do alimento para controle de repetição no dia */
+function extractBaseType(name: string): string | null {
+  const n = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const TYPES: Record<string, string[]> = {
+    feijao: ['feijao'],
+    arroz: ['arroz'],
+    carne_bovina: ['carne moida', 'patinho', 'acem', 'alcatra', 'maminha', 'picanha', 'contrafile', 'coxao', 'lagarto', 'musculo', 'file mignon'],
+    frango: ['frango', 'peito de frango', 'coxa de frango', 'sobrecoxa'],
+    peixe: ['peixe', 'merluza', 'tilapia', 'salmao', 'atum', 'sardinha', 'bacalhau', 'pescada'],
+    acai: ['acai'],
+    ovo: ['ovo cozido', 'ovo frito', 'ovo mexido', 'omelete'],
+    pao: ['pao de forma', 'pao frances', 'pao integral'],
+    iogurte: ['iogurte'],
+    leite: ['leite integral', 'leite desnatado', 'leite semi'],
+    batata: ['batata'],
+    macarrao: ['macarrao', 'espaguete', 'penne'],
+  }
+  for (const [base, kws] of Object.entries(TYPES)) {
+    for (const kw of kws.sort((a, b) => b.length - a.length)) {
+      if (n.includes(kw)) return base
+    }
+  }
+  return null
+}
+
+/** Máximo de vezes que um tipo base pode aparecer no dia inteiro */
+const MAX_BASE_TYPE_PER_DAY: Record<string, number> = {
+  acai: 1,
+  feijao: 1,
+  arroz: 2,
+  ovo: 2,
+  pao: 2,
+  iogurte: 1,
+  leite: 1,
+}
+const DEFAULT_MAX_BASE_TYPE = 2
 
 // ==================== BUILDER PRINCIPAL ====================
 // Abordagem: orcamento rigido de macros com tracking contínuo.
@@ -594,14 +642,36 @@ function selectBestFood(
   macroRole: 'protein' | 'carbs' | 'fat' | 'volume',
   strategy: NutritionStrategy,
   mealType?: string,
+  usedBaseTypes?: Map<string, number>,
 ): { food: FoodRow; servings: number } | null {
-  let available = candidates.filter(f => !usedIds.has(f.id) && strategyScore(f, strategy) > -100)
+  let available = candidates.filter(f =>
+    !usedIds.has(f.id) &&
+    !BLACKLISTED_FOODS.has(f.name) &&
+    strategyScore(f, strategy) > -100
+  )
 
   // Filtrar por adequacao a refeicao (habitos brasileiros)
   if (mealType) {
     const suitable = available.filter(f => isSuitableForMeal(f.name, f.category, mealType))
     if (suitable.length > 0) available = suitable
-    // Se nao sobrou nada adequado, usa todos (fallback)
+  }
+
+  // Filtrar por limite de repetição de tipo base no dia
+  if (usedBaseTypes) {
+    available = available.filter(f => {
+      const bt = extractBaseType(f.name)
+      if (!bt) return true
+      const max = MAX_BASE_TYPE_PER_DAY[bt] ?? DEFAULT_MAX_BASE_TYPE
+      return (usedBaseTypes.get(bt) ?? 0) < max
+    })
+  }
+
+  // Para gordura: priorizar tier 1, depois tier 2, nunca óleo isolado
+  if (macroRole === 'fat') {
+    const tier1 = available.filter(f => FAT_SOURCE_TIER1.has(f.name))
+    const tier2 = available.filter(f => FAT_SOURCE_TIER2.has(f.name))
+    if (tier1.length > 0) available = tier1
+    else if (tier2.length > 0) available = tier2
   }
 
   if (available.length === 0) return null
@@ -705,7 +775,8 @@ export function buildMealPlan(
   fixedFoods?: FixedFoodEntry[]
 ): MealPlan {
   const usedFoodIds = new Set<string>()
-  const nonCustom = foods.filter(f => !f.isCustom)
+  const usedBaseTypes = new Map<string, number>() // tipo base → quantas vezes usado hoje
+  const nonCustom = foods.filter(f => !f.isCustom && !BLACKLISTED_FOODS.has(f.name))
 
   // Indexar por categoria
   const byCat = new Map<string, FoodRow[]>()
@@ -733,6 +804,8 @@ export function buildMealPlan(
       const m = fixedMacros.get(ff.mealType)!
       m.protein += item.protein; m.carbs += item.carbs; m.fat += item.fat; m.calories += item.calories
       usedFoodIds.add(ff.foodId)
+      const fbt = extractBaseType(ff.food.name)
+      if (fbt) usedBaseTypes.set(fbt, (usedBaseTypes.get(fbt) ?? 0) + 1)
     }
     for (const ff of qualquer) {
       let best = 'almoco'; let bestR = -Infinity
@@ -745,6 +818,8 @@ export function buildMealPlan(
       const m = fixedMacros.get(best)!
       m.protein += item.protein; m.carbs += item.carbs; m.fat += item.fat; m.calories += item.calories
       usedFoodIds.add(ff.foodId)
+      const qbt = extractBaseType(ff.food.name)
+      if (qbt) usedBaseTypes.set(qbt, (usedBaseTypes.get(qbt) ?? 0) + 1)
     }
   }
 
@@ -816,12 +891,16 @@ export function buildMealPlan(
         if (light.length > 0) candidates = light
       }
 
-      const result = selectBestFood(candidates, usedFoodIds, adjustedBudget, roleDef.macro, macros.strategy, mealType)
+      const result = selectBestFood(candidates, usedFoodIds, adjustedBudget, roleDef.macro, macros.strategy, mealType, usedBaseTypes)
       if (!result) continue
 
       const item = makePlannedItem(result.food, result.servings)
       items.push(item)
       usedFoodIds.add(result.food.id)
+
+      // Rastrear tipo base para controle de repetição
+      const bt = extractBaseType(result.food.name)
+      if (bt) usedBaseTypes.set(bt, (usedBaseTypes.get(bt) ?? 0) + 1)
 
       // Atualizar orcamentos
       mealBudget.protein -= item.protein
@@ -884,7 +963,12 @@ export function buildMealPlan(
         if (meal.items[i].protein < worstP) { worstP = meal.items[i].protein; worstIdx = i }
       }
       if (worstIdx >= 0) {
-        const allProteins = (byCat.get('carnes') || [])
+        const allProteins = (byCat.get('carnes') || []).filter(f => {
+          const bt = extractBaseType(f.name)
+          if (!bt) return true
+          const max = MAX_BASE_TYPE_PER_DAY[bt] ?? DEFAULT_MAX_BASE_TYPE
+          return (usedBaseTypes.get(bt) ?? 0) < max
+        })
         const rep = pickFrom(allProteins, usedFoodIds)
         if (rep) {
           const old = meal.items[worstIdx]
@@ -907,11 +991,14 @@ export function buildMealPlan(
   const fatDeficit = macros.fat - tF
 
   if (calDeficit > dailyCalTarget * 0.08 && fatDeficit > 10) {
-    // Fontes de gordura saudavel por nome
-    const fatCandidates = nonCustom.filter(f =>
-      FAT_SOURCE_NAMES.has(f.name) && f.fat >= 5 && !usedFoodIds.has(f.id)
+    // Fontes de gordura saudavel — priorizar tier 1
+    const tier1Candidates = nonCustom.filter(f =>
+      FAT_SOURCE_TIER1.has(f.name) && f.fat >= 5 && !usedFoodIds.has(f.id)
     )
-    shuffle(fatCandidates)
+    const tier2Candidates = nonCustom.filter(f =>
+      FAT_SOURCE_TIER2.has(f.name) && f.fat >= 5 && !usedFoodIds.has(f.id)
+    )
+    const fatCandidates = shuffle([...tier1Candidates, ...tier2Candidates])
 
     // Distribuir gordura entre almoco e jantar
     const targetMeals = ['almoco', 'jantar']
