@@ -1045,20 +1045,39 @@ function MealCard({ meal, onSwapItem, onRemoveItem }: { meal: PlannedMeal; onSwa
   )
 }
 
-/** Cor da bolinha pelo macro dominante do alimento */
+/** Cor da bolinha pelo papel nutricional do alimento (por grama, não por caloria) */
 function getDominantMacroColor(protein: number, carbs: number, fat: number): string {
-  const pCal = protein * 4
-  const cCal = carbs * 4
-  const fCal = fat * 9
-  const total = pCal + cCal + fCal
+  const total = protein + carbs + fat
   if (total === 0) return "bg-gray-400"
-  if (pCal / total >= 0.4) return "bg-indigo-500"   // proteína
-  if (cCal / total >= 0.5) return "bg-amber-500"     // carbs
-  if (fCal / total >= 0.45) return "bg-red-500"      // gordura
-  // misto — usar a cor do maior
-  if (pCal >= cCal && pCal >= fCal) return "bg-indigo-500"
-  if (cCal >= pCal && cCal >= fCal) return "bg-amber-500"
-  return "bg-red-500"
+
+  const pRatio = protein / total
+  const cRatio = carbs / total
+  const fRatio = fat / total
+
+  // Proteína: se tem boa proporção de proteína em gramas (>25%)
+  // Ex: ovo (6.3P, 0.6C, 5.3F) → 52% proteína por peso → azul
+  // Ex: frango (31P, 0C, 3.6F) → 90% proteína → azul
+  if (pRatio >= 0.25 && protein >= 2) return "bg-indigo-500"
+
+  // Gordura: se gordura domina em gramas (>45%) E pouca proteína
+  // Ex: azeite (0P, 0C, 13F) → 100% gordura → vermelho
+  // Ex: castanha (5.4P, 9C, 13.2F) → 48% gordura → vermelho
+  if (fRatio >= 0.45 && pRatio < 0.25) return "bg-red-500"
+
+  // Carbs: se carboidrato domina (>50%)
+  // Ex: arroz (2.7P, 28.2C, 0.3F) → 90% carbs → laranja
+  // Ex: banana (1.1P, 22.8C, 0.3F) → 94% carbs → laranja
+  if (cRatio >= 0.50) return "bg-amber-500"
+
+  // Legumes/fibra: baixa caloria, sem macro dominante claro
+  // Ex: brócolis (2.4P, 7.2C, 0.4F) → carbs domina mas é vegetal
+  // Ex: alface (0.5P, 1.2C, 0.1F) → pouco de tudo
+  if (carbs > protein && carbs > fat) return "bg-green-500"  // verde = vegetal/fibra
+
+  // Fallback
+  if (pRatio >= cRatio && pRatio >= fRatio) return "bg-indigo-500"
+  if (fRatio >= cRatio) return "bg-red-500"
+  return "bg-amber-500"
 }
 
 function FoodItemRow({ item, onSwap, onRemove }: { item: PlannedItem; onSwap: () => void; onRemove: () => void }) {
