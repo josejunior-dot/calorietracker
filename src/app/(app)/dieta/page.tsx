@@ -770,24 +770,30 @@ export default function DietaPage() {
             ))}
           </div>
 
-          {/* Daily totals */}
-          <div className="bg-card rounded-2xl border border-border p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-foreground">Total do Dia</h3>
+          {/* Meta vs Realizado — sticky while editing */}
+          <div className="bg-card rounded-2xl border border-border p-4 space-y-3 sticky top-0 z-10 shadow-sm">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Meta vs Realizado</h3>
             <div className="grid grid-cols-4 gap-2">
-              <MacroBox icon={Flame} label="Calorias" value={plan.totalCalories} unit="kcal" color="text-primary" />
-              <MacroBox icon={Beef} label="Proteina" value={plan.totalProtein} unit="g" color="text-indigo-500" />
-              <MacroBox icon={Wheat} label="Carbs" value={plan.totalCarbs} unit="g" color="text-amber-500" />
-              <MacroBox icon={Droplets} label="Gordura" value={plan.totalFat} unit="g" color="text-red-500" />
+              <MetaVsReal label="Calorias" meta={displayMacros?.calories ?? 0} real={plan.totalCalories} unit="kcal" color="text-primary" />
+              <MetaVsReal label="Proteina" meta={displayMacros?.protein ?? 0} real={plan.totalProtein} unit="g" color="text-indigo-500" />
+              <MetaVsReal label="Carbs" meta={displayMacros?.carbs ?? 0} real={plan.totalCarbs} unit="g" color="text-amber-500" />
+              <MetaVsReal label="Gordura" meta={displayMacros?.fat ?? 0} real={plan.totalFat} unit="g" color="text-red-500" />
             </div>
-            <div className="flex h-2 rounded-full overflow-hidden">
-              <div className="bg-indigo-500" style={{ width: `${Math.round((plan.totalProtein * 4 / plan.totalCalories) * 100)}%` }} />
-              <div className="bg-amber-500" style={{ width: `${Math.round((plan.totalCarbs * 4 / plan.totalCalories) * 100)}%` }} />
-              <div className="bg-red-500" style={{ width: `${Math.round((plan.totalFat * 9 / plan.totalCalories) * 100)}%` }} />
-            </div>
-            <div className="flex justify-between text-[10px] text-muted-foreground">
-              <span>P: {Math.round((plan.totalProtein * 4 / plan.totalCalories) * 100)}%</span>
-              <span>C: {Math.round((plan.totalCarbs * 4 / plan.totalCalories) * 100)}%</span>
-              <span>G: {Math.round((plan.totalFat * 9 / plan.totalCalories) * 100)}%</span>
+            {/* Progress bars: realizado / meta */}
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { meta: displayMacros?.calories ?? 0, real: plan.totalCalories, color: "bg-primary" },
+                { meta: displayMacros?.protein ?? 0, real: plan.totalProtein, color: "bg-indigo-500" },
+                { meta: displayMacros?.carbs ?? 0, real: plan.totalCarbs, color: "bg-amber-500" },
+                { meta: displayMacros?.fat ?? 0, real: plan.totalFat, color: "bg-red-500" },
+              ].map((m, i) => {
+                const pct = m.meta > 0 ? Math.min(100, Math.round((m.real / m.meta) * 100)) : 0
+                return (
+                  <div key={i} className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${m.color}`} style={{ width: `${pct}%` }} />
+                  </div>
+                )
+              })}
             </div>
           </div>
 
@@ -1026,6 +1032,27 @@ function MiniMacro({ label, value, color }: { label: string; value: number; colo
     <div className="flex items-center gap-1">
       <span className={`text-[10px] font-bold ${color}`}>{label}</span>
       <span className="text-xs text-muted-foreground tabular-nums">{Math.round(value * 10) / 10}g</span>
+    </div>
+  )
+}
+
+function MetaVsReal({ label, meta, real, unit, color }: { label: string; meta: number; real: number; unit: string; color: string }) {
+  const diff = real - meta
+  const pct = meta > 0 ? Math.round((real / meta) * 100) : 0
+  const isClose = Math.abs(pct - 100) <= 10
+  const isOver = pct > 110
+  return (
+    <div className="flex flex-col items-center gap-0.5 py-1.5">
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+      <span className={`text-sm font-bold tabular-nums ${isClose ? color : isOver ? "text-red-500" : "text-muted-foreground"}`}>
+        {Math.round(real)}
+      </span>
+      <span className="text-[10px] text-muted-foreground tabular-nums">
+        / {Math.round(meta)} {unit}
+      </span>
+      <span className={`text-[9px] font-semibold tabular-nums ${isClose ? "text-green-600" : isOver ? "text-red-500" : "text-amber-500"}`}>
+        {diff > 0 ? "+" : ""}{Math.round(diff)}
+      </span>
     </div>
   )
 }
