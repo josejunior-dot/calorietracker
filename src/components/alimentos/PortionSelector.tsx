@@ -18,6 +18,8 @@ type Food = {
   protein: number
   carbs: number
   fat: number
+  saturatedFat?: number
+  transFat?: number
   fiber?: number
   sodium?: number
   noomColor: string
@@ -56,6 +58,8 @@ export function PortionSelector({
     protein: Math.round(food.protein * servings * 10) / 10,
     carbs: Math.round(food.carbs * servings * 10) / 10,
     fat: Math.round(food.fat * servings * 10) / 10,
+    saturatedFat: Math.round((food.saturatedFat || 0) * servings * 10) / 10,
+    transFat: Math.round((food.transFat || 0) * servings * 10) / 10,
     fiber: Math.round((food.fiber || 0) * servings * 10) / 10,
     sodium: Math.round((food.sodium || 0) * servings),
     grams: Math.round(food.servingSize * servings),
@@ -230,6 +234,14 @@ export function PortionSelector({
 
             {/* Secondary nutrients */}
             <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center justify-between px-3 py-2 bg-muted/50 rounded-lg">
+                <span className="text-xs text-muted-foreground">G. Saturada</span>
+                <span className="text-xs font-semibold text-foreground tabular-nums">{calc.saturatedFat}g</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2 bg-muted/50 rounded-lg">
+                <span className="text-xs text-muted-foreground">G. Trans</span>
+                <span className="text-xs font-semibold text-foreground tabular-nums">{calc.transFat}g</span>
+              </div>
               <div className="flex items-center justify-between px-3 py-2 bg-muted/50 rounded-lg">
                 <span className="text-xs text-muted-foreground">Fibra</span>
                 <span className="text-xs font-semibold text-foreground tabular-nums">{calc.fiber}g</span>

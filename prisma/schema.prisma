@@ -40,7 +40,9 @@ model Food {
   calories     Float
   protein      Float    // g
   carbs        Float    // g
-  fat          Float    // g
+  fat          Float    // g (gordura total)
+  saturatedFat Float    @default(0) // g (gordura saturada)
+  transFat     Float    @default(0) // g (gordura trans)
   fiber        Float    @default(0) // g
   sugar        Float    @default(0) // g
   sodium       Float    @default(0) // mg
