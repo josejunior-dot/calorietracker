@@ -942,7 +942,7 @@ export default function DietaPage() {
                           onClick={() => swapFood(food)}
                           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors text-left"
                         >
-                          <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${NOOM_DOT_COLORS[food.noomColor] || "bg-gray-400"}`} />
+                          <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${getDominantMacroColor(food.protein, food.carbs, food.fat)}`} />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-foreground truncate">{food.name}</p>
                             <p className="text-xs text-muted-foreground">{food.servingLabel} · P:{food.protein}g C:{food.carbs}g G:{food.fat}g</p>
@@ -995,7 +995,7 @@ export default function DietaPage() {
                       onClick={() => swapFood(food)}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors text-left"
                     >
-                      <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${NOOM_DOT_COLORS[food.noomColor] || "bg-gray-400"}`} />
+                      <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${getDominantMacroColor(food.protein, food.carbs, food.fat)}`} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-foreground truncate">{food.name}</p>
                         <p className="text-xs text-muted-foreground">{food.servingLabel} · P:{food.protein}g C:{food.carbs}g G:{food.fat}g</p>
@@ -1045,8 +1045,24 @@ function MealCard({ meal, onSwapItem, onRemoveItem }: { meal: PlannedMeal; onSwa
   )
 }
 
+/** Cor da bolinha pelo macro dominante do alimento */
+function getDominantMacroColor(protein: number, carbs: number, fat: number): string {
+  const pCal = protein * 4
+  const cCal = carbs * 4
+  const fCal = fat * 9
+  const total = pCal + cCal + fCal
+  if (total === 0) return "bg-gray-400"
+  if (pCal / total >= 0.4) return "bg-indigo-500"   // proteína
+  if (cCal / total >= 0.5) return "bg-amber-500"     // carbs
+  if (fCal / total >= 0.45) return "bg-red-500"      // gordura
+  // misto — usar a cor do maior
+  if (pCal >= cCal && pCal >= fCal) return "bg-indigo-500"
+  if (cCal >= pCal && cCal >= fCal) return "bg-amber-500"
+  return "bg-red-500"
+}
+
 function FoodItemRow({ item, onSwap, onRemove }: { item: PlannedItem; onSwap: () => void; onRemove: () => void }) {
-  const dotColor = NOOM_DOT_COLORS[item.noomColor] || "bg-gray-400"
+  const dotColor = getDominantMacroColor(item.protein, item.carbs, item.fat)
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 group">
       <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
