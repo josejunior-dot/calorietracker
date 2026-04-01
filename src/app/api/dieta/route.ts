@@ -89,6 +89,24 @@ export async function GET(request: NextRequest) {
     // 5. Calcular metas de macros com a estrategia e overrides
     const macros = calculateMacroTargets(userContext, strategy, overrides)
 
+    // 5.5. Se preview=true, retornar só macros (sem gerar plano)
+    const preview = searchParams.get('preview')
+    if (preview === 'true') {
+      return NextResponse.json({
+        macros,
+        user: {
+          name: user.name,
+          weight: user.weight,
+          height: user.height,
+          age,
+          activityLevel: user.activityLevel,
+          goal: user.goal,
+          dailyCalTarget: dailyCal,
+          tdee: metrics.tdee,
+        },
+      })
+    }
+
     // 6. Buscar todos os alimentos nao-custom do banco
     const foods = await prisma.food.findMany({
       where: { isCustom: false },

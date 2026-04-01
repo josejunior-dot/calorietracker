@@ -175,10 +175,9 @@ export default function DietaPage() {
   const fetchPreview = useCallback(async (s: NutritionStrategy, pPerKg: number | null, cGrams: number | null) => {
     setPreviewLoading(true)
     try {
-      const params = new URLSearchParams({ strategy: s })
+      const params = new URLSearchParams({ strategy: s, preview: "true" })
       if (pPerKg !== null) params.set("proteinPerKg", pPerKg.toString())
       if (cGrams !== null) params.set("carbsGrams", cGrams.toString())
-      // We use the diet API to get the macros preview (it returns macros even without generating plan)
       const res = await fetch(`/api/dieta?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
