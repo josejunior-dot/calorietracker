@@ -139,6 +139,8 @@ export default function DietaPage() {
   const [searchResults, setSearchResults] = useState<Food[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [searching, setSearching] = useState(false)
+  const [suggestions, setSuggestions] = useState<Food[]>([])
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
 
   // Fetch user profile on mount
   useEffect(() => {
@@ -260,6 +262,20 @@ export default function DietaPage() {
       setApplying(false)
     }
   }, [plan, selectedDate])
+
+  // Load suggestions when swap modal opens
+  useEffect(() => {
+    if (!swapTarget || !plan) { setSuggestions([]); return }
+    const item = plan.meals[swapTarget.mealIdx]?.items[swapTarget.itemIdx]
+    if (!item) return
+    setLoadingSuggestions(true)
+    setSuggestions([])
+    fetch(`/api/alimentos/sugestoes?foodId=${item.foodId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.suggestions) setSuggestions(data.suggestions) })
+      .catch(() => {})
+      .finally(() => setLoadingSuggestions(false))
+  }, [swapTarget, plan])
 
   // Food search for swap
   const searchFoods = useCallback(async (q: string) => {
@@ -828,6 +844,46 @@ export default function DietaPage() {
                 </p>
               </div>
 
+              {/* Sugestões automáticas */}
+              {(loadingSuggestions || (suggestions.length > 0 && searchQuery.length < 2)) && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Sugestoes similares
+                  </p>
+                  {loadingSuggestions ? (
+                    <div className="flex justify-center py-4">
+                      <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <div className="max-h-52 overflow-y-auto space-y-1">
+                      {suggestions.map((food: Food) => (
+                        <button
+                          key={food.id}
+                          onClick={() => swapFood(food)}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors text-left"
+                        >
+                          <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${NOOM_DOT_COLORS[food.noomColor] || "bg-gray-400"}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-foreground truncate">{food.name}</p>
+                            <p className="text-xs text-muted-foreground">{food.servingLabel} · P:{food.protein}g C:{food.carbs}g G:{food.fat}g</p>
+                          </div>
+                          <span className="text-xs font-semibold text-primary tabular-nums">{food.calories} kcal</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Divider */}
+              {suggestions.length > 0 && searchQuery.length < 2 && (
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-[10px] text-muted-foreground uppercase">ou buscar</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+              )}
+
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
@@ -837,36 +893,38 @@ export default function DietaPage() {
                     setSearchQuery(e.target.value)
                     searchFoods(e.target.value)
                   }}
-                  placeholder="Buscar alimento..."
+                  placeholder="Buscar outro alimento..."
                   className="w-full pl-10 pr-4 py-3 rounded-xl bg-muted/50 border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  autoFocus
                 />
               </div>
 
-              <div className="max-h-64 overflow-y-auto space-y-1">
-                {searching && (
-                  <div className="flex justify-center py-4">
-                    <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
-                  </div>
-                )}
-                {!searching && searchResults.length === 0 && searchQuery.length >= 2 && (
-                  <p className="text-center text-sm text-muted-foreground py-4">Nenhum resultado</p>
-                )}
-                {searchResults.map((food: Food) => (
-                  <button
-                    key={food.id}
-                    onClick={() => swapFood(food)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors text-left"
-                  >
-                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${NOOM_DOT_COLORS[food.noomColor] || "bg-gray-400"}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground truncate">{food.name}</p>
-                      <p className="text-xs text-muted-foreground">{food.servingLabel} · P:{food.protein}g C:{food.carbs}g G:{food.fat}g</p>
+              {/* Resultados da busca manual */}
+              {searchQuery.length >= 2 && (
+                <div className="max-h-52 overflow-y-auto space-y-1">
+                  {searching && (
+                    <div className="flex justify-center py-4">
+                      <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
                     </div>
-                    <span className="text-xs font-semibold text-primary tabular-nums">{food.calories} kcal</span>
-                  </button>
-                ))}
-              </div>
+                  )}
+                  {!searching && searchResults.length === 0 && (
+                    <p className="text-center text-sm text-muted-foreground py-4">Nenhum resultado</p>
+                  )}
+                  {searchResults.map((food: Food) => (
+                    <button
+                      key={food.id}
+                      onClick={() => swapFood(food)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors text-left"
+                    >
+                      <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${NOOM_DOT_COLORS[food.noomColor] || "bg-gray-400"}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-foreground truncate">{food.name}</p>
+                        <p className="text-xs text-muted-foreground">{food.servingLabel} · P:{food.protein}g C:{food.carbs}g G:{food.fat}g</p>
+                      </div>
+                      <span className="text-xs font-semibold text-primary tabular-nums">{food.calories} kcal</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
