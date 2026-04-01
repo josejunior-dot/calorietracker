@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
   Wand2, RefreshCw, CalendarDays, Check, ChevronRight,
-  Flame, Beef, Wheat, Droplets, ArrowLeftRight, X, Search,
+  Flame, Beef, Wheat, Droplets, ArrowLeftRight, X, Search, Trash2,
   Pin, AlertTriangle, ChevronDown, Zap, Leaf, Target, Dumbbell, Trophy,
   Info, Layers,
 } from "lucide-react"
@@ -328,6 +328,31 @@ export default function DietaPage() {
     setSearchQuery("")
     setSearchResults([])
     toast.success(`Substituido por ${food.name}`)
+  }
+
+  // Remove item from plan
+  const removeItem = (mealIdx: number, itemIdx: number) => {
+    if (!plan) return
+    const item = plan.meals[mealIdx]?.items[itemIdx]
+    if (!item) return
+    const newPlan = { ...plan, meals: plan.meals.map((m, mi) => {
+      if (mi !== mealIdx) return m
+      const newItems = m.items.filter((_, ii) => ii !== itemIdx)
+      return {
+        ...m,
+        items: newItems,
+        totalCalories: newItems.reduce((s, i) => s + i.calories, 0),
+        totalProtein: newItems.reduce((s, i) => s + i.protein, 0),
+        totalCarbs: newItems.reduce((s, i) => s + i.carbs, 0),
+        totalFat: newItems.reduce((s, i) => s + i.fat, 0),
+      }
+    })}
+    newPlan.totalCalories = newPlan.meals.reduce((s, m) => s + m.totalCalories, 0)
+    newPlan.totalProtein = newPlan.meals.reduce((s, m) => s + m.totalProtein, 0)
+    newPlan.totalCarbs = newPlan.meals.reduce((s, m) => s + m.totalCarbs, 0)
+    newPlan.totalFat = newPlan.meals.reduce((s, m) => s + m.totalFat, 0)
+    setPlan(newPlan)
+    toast.success(`${item.name} removido`)
   }
 
   const goalLabel = GOALS.find((g) => g.key === userProfile?.goal)?.label || userProfile?.goal || ""
@@ -740,6 +765,7 @@ export default function DietaPage() {
                   setSearchQuery("")
                   setSearchResults([])
                 }}
+                onRemoveItem={(itemIdx) => removeItem(mealIdx, itemIdx)}
               />
             ))}
           </div>
@@ -937,7 +963,7 @@ export default function DietaPage() {
 // Subcomponentes
 // ============================================================
 
-function MealCard({ meal, onSwapItem }: { meal: PlannedMeal; onSwapItem: (idx: number) => void }) {
+function MealCard({ meal, onSwapItem, onRemoveItem }: { meal: PlannedMeal; onSwapItem: (idx: number) => void; onRemoveItem: (idx: number) => void }) {
   const emoji = MEAL_EMOJIS[meal.mealType] || ""
   const mealTypeInfo = MEAL_TYPES.find((m) => m.key === meal.mealType)
   const label = mealTypeInfo?.label || meal.label
@@ -953,7 +979,7 @@ function MealCard({ meal, onSwapItem }: { meal: PlannedMeal; onSwapItem: (idx: n
       </div>
       <div className="divide-y divide-border">
         {meal.items.map((item, idx) => (
-          <FoodItemRow key={idx} item={item} onSwap={() => onSwapItem(idx)} />
+          <FoodItemRow key={idx} item={item} onSwap={() => onSwapItem(idx)} onRemove={() => onRemoveItem(idx)} />
         ))}
       </div>
       <div className="flex items-center gap-4 px-4 py-2.5 bg-muted/20 border-t border-border">
@@ -965,7 +991,7 @@ function MealCard({ meal, onSwapItem }: { meal: PlannedMeal; onSwapItem: (idx: n
   )
 }
 
-function FoodItemRow({ item, onSwap }: { item: PlannedItem; onSwap: () => void }) {
+function FoodItemRow({ item, onSwap, onRemove }: { item: PlannedItem; onSwap: () => void; onRemove: () => void }) {
   const dotColor = NOOM_DOT_COLORS[item.noomColor] || "bg-gray-400"
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 group">
@@ -974,7 +1000,7 @@ function FoodItemRow({ item, onSwap }: { item: PlannedItem; onSwap: () => void }
         <p className="text-sm text-foreground truncate">{item.name}</p>
         <p className="text-xs text-muted-foreground">{item.servings}x {item.servingLabel}</p>
       </div>
-      <span className="text-xs font-semibold text-muted-foreground tabular-nums whitespace-nowrap mr-1">
+      <span className="text-xs font-semibold text-muted-foreground tabular-nums whitespace-nowrap">
         {item.calories} kcal
       </span>
       <button
@@ -983,6 +1009,13 @@ function FoodItemRow({ item, onSwap }: { item: PlannedItem; onSwap: () => void }
         title="Substituir"
       >
         <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" />
+      </button>
+      <button
+        onClick={onRemove}
+        className="w-7 h-7 rounded-lg bg-muted/50 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-500/10 transition-colors shrink-0"
+        title="Remover"
+      >
+        <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover:text-red-500" />
       </button>
     </div>
   )
