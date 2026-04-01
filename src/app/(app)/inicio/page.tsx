@@ -7,6 +7,7 @@ import { MacroBar } from "@/components/dashboard/MacroBar"
 import { MealSummaryCard } from "@/components/dashboard/MealSummaryCard"
 import { StreakBadge } from "@/components/dashboard/StreakBadge"
 import { CalorieSummaryRow } from "@/components/dashboard/CalorieSummaryRow"
+import { WeightProjection } from "@/components/dashboard/WeightProjection"
 import { getGreeting, toISODate, formatDate } from "@/lib/date"
 import { MEAL_TYPES, MACRO_COLORS } from "@/lib/constants"
 import type { DashboardData } from "@/types"
@@ -188,6 +189,12 @@ export default function DashboardPage() {
             )
           })}
         </div>
+      </div>
+
+      {/* Weight Projection */}
+      <div className="flex flex-col gap-3">
+        <h2 className="text-base font-semibold text-foreground">Projecao</h2>
+        <WeightProjection />
       </div>
 
       {/* Refresh button */}
