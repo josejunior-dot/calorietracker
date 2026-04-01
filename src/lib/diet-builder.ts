@@ -539,14 +539,17 @@ const VEG_CATEGORIES = new Set(['legumes'])
 const DAIRY_CATEGORIES = new Set(['laticinios'])
 
 /** Templates de estrutura por refeicao (papel do alimento na refeicao) */
-type MealRole = 'protein' | 'carb' | 'carb2' | 'vegetable' | 'vegetable2' | 'fruit' | 'dairy' | 'snack'
+type MealRole = 'protein' | 'carb' | 'carb2' | 'vegetable' | 'vegetable2' | 'fruit' | 'dairy' | 'fat_source' | 'snack'
 
 const MEAL_STRUCTURE: Record<string, MealRole[]> = {
-  cafe_da_manha: ['protein', 'carb', 'fruit', 'dairy'],
-  almoco: ['protein', 'carb', 'carb2', 'vegetable', 'vegetable2'],
-  jantar: ['protein', 'carb', 'vegetable'],
-  lanche: ['protein', 'snack'],
+  cafe_da_manha: ['dairy', 'protein', 'carb', 'fruit'],
+  almoco: ['protein', 'carb', 'carb2', 'vegetable', 'fat_source'],
+  jantar: ['protein', 'carb', 'vegetable', 'vegetable2'],
+  lanche: ['dairy', 'fruit'],
 }
+
+/** Alimentos fontes de gordura saudavel */
+const FAT_SOURCE_CATEGORIES = new Set(['oleos', 'industrializados'])
 
 export function buildMealPlan(
   foods: FoodRow[],
@@ -563,10 +566,17 @@ export function buildMealPlan(
   // Indexar alimentos por papel nutricional
   const proteinFoods = filtered.filter(f => PROTEIN_CATEGORIES.has(f.category) || (f.protein >= 15 && classifyFood(f) === 'protein'))
     .sort((a, b) => (b.protein / Math.max(1, b.calories)) - (a.protein / Math.max(1, a.calories)))
+  // Proteinas leves para cafe da manha (ovo, queijo, peito de peru, presunto)
+  const lightProteinFoods = filtered.filter(f =>
+    DAIRY_CATEGORIES.has(f.category) ||
+    ['Ovo cozido', 'Peito de peru', 'Presunto'].includes(f.name) ||
+    (f.category === 'carnes' && f.calories <= 120 && f.protein >= 5)
+  )
   const carbFoods = filtered.filter(f => CARB_CATEGORIES.has(f.category))
   const vegFoods = filtered.filter(f => VEG_CATEGORIES.has(f.category))
   const dairyFoods = filtered.filter(f => DAIRY_CATEGORIES.has(f.category))
   const fruitFoods = filtered.filter(f => f.category === 'frutas')
+  const fatFoods = filtered.filter(f => FAT_SOURCE_CATEGORIES.has(f.category) || f.fat >= 8)
   const snackFoods = filtered.filter(f => ['frutas', 'laticinios', 'industrializados'].includes(f.category))
 
   // Shufflar para variedade (exceto proteinFoods que ja esta ordenado por ratio)
@@ -641,7 +651,8 @@ export function buildMealPlan(
 
       switch (role) {
         case 'protein': {
-          candidates = proteinFoods
+          // Cafe da manha: proteinas leves (ovo, queijo). Demais: carnes.
+          candidates = mealType === 'cafe_da_manha' ? lightProteinFoods : proteinFoods
           targetGrams = Math.max(proteinLeft, 0)
           macroKey = 'protein'
           break
@@ -672,6 +683,12 @@ export function buildMealPlan(
           candidates = dairyFoods
           targetGrams = Math.max(proteinLeft * 0.3, 0)
           macroKey = 'protein'
+          break
+        }
+        case 'fat_source': {
+          candidates = fatFoods
+          targetGrams = Math.max(mealFatTarget - (items.reduce((s, i) => s + i.fat, 0)), 5)
+          macroKey = 'fat'
           break
         }
         case 'snack': {
