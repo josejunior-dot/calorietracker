@@ -892,9 +892,28 @@ export function buildMealPlan(
       t.items.filter(i => i.role === 'principal').every(i => foodByName.has(i.foodName))
     )
 
-    // Selecionar aleatoriamente entre os top compatíveis
-    shuffle(compatible)
-    const template = compatible[0]
+    // Pontuar templates por proximidade de macros ao budget da refeição
+    const scored = compatible.map(t => {
+      let tCal = 0, tP = 0, tC = 0, tF = 0
+      for (const ti of t.items) {
+        const food = foodByName.get(ti.foodName)
+        if (!food) continue
+        tCal += food.calories * ti.defaultServings
+        tP += food.protein * ti.defaultServings
+        tC += food.carbs * ti.defaultServings
+        tF += food.fat * ti.defaultServings
+      }
+      // Score: menor diferença percentual = melhor
+      const calDiff = tCal > 0 ? Math.abs(tCal - mealBudget.calories) / Math.max(1, mealBudget.calories) : 1
+      const pDiff = mealBudget.protein > 0 ? Math.abs(tP - mealBudget.protein) / mealBudget.protein : 0
+      const cDiff = mealBudget.carbs > 0 ? Math.abs(tC - mealBudget.carbs) / mealBudget.carbs : 0
+      const fDiff = mealBudget.fat > 0 ? Math.abs(tF - mealBudget.fat) / mealBudget.fat : 0
+      return { template: t, score: calDiff + pDiff * 0.8 + cDiff * 0.8 + fDiff * 0.5 }
+    })
+    scored.sort((a, b) => a.score - b.score)
+    // Escolher entre os top 3 para manter alguma variedade
+    const topN = scored.slice(0, Math.min(3, scored.length))
+    const template = topN[Math.floor(Math.random() * topN.length)]?.template
 
     if (!template) {
       // Sem template disponível — criar refeição vazia com fixos
@@ -912,21 +931,28 @@ export function buildMealPlan(
     // ---------- Montar itens do template com ajuste de porções ----------
     const items: PlannedItem[] = [...fixedItems]
 
-    // Calcular calorias base do template (sem ajuste)
-    let templateBaseCal = 0
+    // Calcular macros base do template
+    let templateBaseCal = 0, templateBaseCarbs = 0, templateBaseFat = 0
     for (const ti of template.items) {
       const food = foodByName.get(ti.foodName)
       if (!food) continue
       templateBaseCal += food.calories * ti.defaultServings
+      templateBaseCarbs += food.carbs * ti.defaultServings
+      templateBaseFat += food.fat * ti.defaultServings
     }
 
-    // Fator de escala global para bater calorias
-    const scaleFactor = templateBaseCal > 0 ? mealBudget.calories / templateBaseCal : 1
+    // Fator de escala por calorias (principal)
+    const calScale = templateBaseCal > 0 ? mealBudget.calories / templateBaseCal : 1
+    // Se carbs estourariam, limitar o scale
+    const carbScale = templateBaseCarbs > 0 && mealBudget.carbs > 0
+      ? mealBudget.carbs / templateBaseCarbs : calScale
+    // Usar o menor scale para não estourar nenhum macro
+    const scaleFactor = Math.min(calScale, carbScale)
 
     for (const ti of template.items) {
       const food = foodByName.get(ti.foodName)
       if (!food) continue
-      if (usedFoodNames.has(ti.foodName)) continue // não repetir alimento já usado
+      if (usedFoodNames.has(ti.foodName)) continue
 
       let servings = ti.defaultServings
       if (ti.adjustable) {
@@ -941,7 +967,6 @@ export function buildMealPlan(
       items.push(item)
       usedFoodNames.add(ti.foodName)
 
-      // Rastrear proteína principal para evitar repetição
       if (ti.role === 'principal' && food.protein > 10) {
         usedProteinNames.add(ti.foodName)
       }
@@ -957,47 +982,85 @@ export function buildMealPlan(
     meals.push(meal)
   }
 
-  // ---------- Ajuste fino: balanceamento de macros ----------
-  const tCal = meals.reduce((s, m) => s + m.totalCalories, 0)
-  const tP = meals.reduce((s, m) => s + m.totalProtein, 0)
+  // ---------- Ajuste fino: tolerância ±10% em todos os macros ----------
+  const TOLERANCE = 0.10
 
-  // Se proteína ficou >15g abaixo, aumentar porções de proteínas
-  if (tP < macros.protein - 15) {
+  // Helper: recalc totais globais
+  const totals = () => ({
+    cal: meals.reduce((s, m) => s + m.totalCalories, 0),
+    p: meals.reduce((s, m) => s + m.totalProtein, 0),
+    c: meals.reduce((s, m) => s + m.totalCarbs, 0),
+    f: meals.reduce((s, m) => s + m.totalFat, 0),
+  })
+
+  // Helper: ajustar porção de um item por step (-0.5 ou +0.5)
+  const adjustItem = (meal: PlannedMeal, idx: number, step: number) => {
+    const item = meal.items[idx]
+    const food = foodByName.get(item.name)
+    if (!food || item.servings + step < 0.5 || item.servings + step > 3.5) return false
+    meal.items[idx] = makePlannedItem(food, item.servings + step)
+    recalcMeal(meal)
+    return true
+  }
+
+  // Passo 1: Se carbs estão >10% acima, reduzir itens ricos em carbs
+  for (let pass = 0; pass < 4; pass++) {
+    const t = totals()
+    if (t.c <= macros.carbs * (1 + TOLERANCE)) break
     for (const meal of meals) {
-      if (meal.mealType === 'lanche') continue
-      for (let i = 0; i < meal.items.length; i++) {
-        const item = meal.items[i]
-        const food = foodByName.get(item.name)
-        if (!food || food.protein < 15) continue // só ajustar proteínas principais
-        if (item.servings >= 3) continue
-        const newServings = Math.min(3, item.servings + 0.5)
-        meal.items[i] = makePlannedItem(food, newServings)
-        recalcMeal(meal)
-        const newTP = meals.reduce((s, m) => s + m.totalProtein, 0)
-        if (newTP >= macros.protein - 10) break
+      const fixedCount = fixedByMeal.get(meal.mealType)?.length || 0
+      for (let i = meal.items.length - 1; i >= fixedCount; i--) {
+        const food = foodByName.get(meal.items[i].name)
+        if (!food || food.carbs < 10 || meal.items[i].servings <= 0.5) continue
+        adjustItem(meal, i, -0.5)
+        break
       }
-      const newTP = meals.reduce((s, m) => s + m.totalProtein, 0)
-      if (newTP >= macros.protein - 10) break
     }
   }
 
-  // Se calorias estouraram >5%, reduzir porções de itens ajustáveis
-  const tCalAfter = meals.reduce((s, m) => s + m.totalCalories, 0)
-  if (tCalAfter > dailyCalTarget * 1.05) {
-    const excess = tCalAfter - dailyCalTarget
-    let reduced = 0
+  // Passo 2: Se gordura está >10% abaixo, aumentar itens de gordura ou proteínas com gordura
+  for (let pass = 0; pass < 3; pass++) {
+    const t = totals()
+    if (t.f >= macros.fat * (1 - TOLERANCE)) break
+    for (const meal of meals) {
+      if (meal.mealType === 'lanche') continue
+      const fixedCount = fixedByMeal.get(meal.mealType)?.length || 0
+      for (let i = fixedCount; i < meal.items.length; i++) {
+        const food = foodByName.get(meal.items[i].name)
+        if (!food || food.fat < 5 || meal.items[i].servings >= 3) continue
+        adjustItem(meal, i, 0.5)
+        break
+      }
+    }
+  }
+
+  // Passo 3: Se proteína está >10% abaixo, aumentar proteínas
+  for (let pass = 0; pass < 3; pass++) {
+    const t = totals()
+    if (t.p >= macros.protein * (1 - TOLERANCE)) break
+    for (const meal of meals) {
+      if (meal.mealType === 'lanche') continue
+      for (let i = 0; i < meal.items.length; i++) {
+        const food = foodByName.get(meal.items[i].name)
+        if (!food || food.protein < 15 || meal.items[i].servings >= 3) continue
+        adjustItem(meal, i, 0.5)
+        break
+      }
+    }
+  }
+
+  // Passo 4: Se calorias >10% acima, reduzir itens maiores
+  for (let pass = 0; pass < 4; pass++) {
+    const t = totals()
+    if (t.cal <= dailyCalTarget * (1 + TOLERANCE)) break
     for (const meal of [...meals].reverse()) {
       const fixedCount = fixedByMeal.get(meal.mealType)?.length || 0
       for (let i = meal.items.length - 1; i >= fixedCount; i--) {
-        if (reduced >= excess) break
-        const item = meal.items[i]
-        const food = foodByName.get(item.name)
-        if (!food || item.servings <= 0.5) continue
-        const newServings = Math.max(0.5, item.servings - 0.5)
-        meal.items[i] = makePlannedItem(food, newServings)
-        reduced += item.calories - meal.items[i].calories
+        const food = foodByName.get(meal.items[i].name)
+        if (!food || meal.items[i].servings <= 0.5) continue
+        adjustItem(meal, i, -0.5)
+        break
       }
-      recalcMeal(meal)
     }
   }
 

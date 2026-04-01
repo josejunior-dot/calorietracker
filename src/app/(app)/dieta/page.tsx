@@ -291,9 +291,57 @@ export default function DietaPage() {
     finally { setSearching(false) }
   }, [])
 
+  // Simulate a swap and return the new plan totals
+  const simulateSwap = (food: Food) => {
+    if (!plan || !swapTarget) return null
+    const { mealIdx, itemIdx } = swapTarget
+    const oldItem = plan.meals[mealIdx]?.items[itemIdx]
+    if (!oldItem) return null
+    const servings = Math.max(0.5, Math.round((oldItem.calories / food.calories) * 10) / 10)
+    const newItemCal = Math.round(food.calories * servings)
+    const newItemP = Math.round(food.protein * servings * 10) / 10
+    const newItemC = Math.round(food.carbs * servings * 10) / 10
+    const newItemF = Math.round(food.fat * servings * 10) / 10
+    return {
+      calories: plan.totalCalories - oldItem.calories + newItemCal,
+      protein: plan.totalProtein - oldItem.protein + newItemP,
+      carbs: plan.totalCarbs - oldItem.carbs + newItemC,
+      fat: plan.totalFat - oldItem.fat + newItemF,
+    }
+  }
+
+  // Check if totals exceed ±10% tolerance on any macro
+  const checkMacroOverflow = (totals: { calories: number; protein: number; carbs: number; fat: number }) => {
+    if (!displayMacros) return []
+    const issues: string[] = []
+    const check = (label: string, actual: number, target: number) => {
+      const pct = target > 0 ? ((actual - target) / target) * 100 : 0
+      if (pct > 10) issues.push(`${label} ficaria ${Math.round(pct)}% acima da meta`)
+      if (pct < -10) issues.push(`${label} ficaria ${Math.round(Math.abs(pct))}% abaixo da meta`)
+    }
+    check('Calorias', totals.calories, displayMacros.calories)
+    check('Proteina', totals.protein, displayMacros.protein)
+    check('Carbs', totals.carbs, displayMacros.carbs)
+    check('Gordura', totals.fat, displayMacros.fat)
+    return issues
+  }
+
   // Swap food in plan
   const swapFood = (food: Food) => {
     if (!plan || !swapTarget) return
+    const sim = simulateSwap(food)
+    if (sim) {
+      const issues = checkMacroOverflow(sim)
+      if (issues.length > 0) {
+        const proceed = confirm(
+          `Essa troca causaria desequilibrio:\n\n` +
+          issues.map(i => `• ${i}`).join('\n') +
+          `\n\nDeseja continuar mesmo assim?\n(Dica: escolha um alimento com menos calorias do mesmo grupo)`
+        )
+        if (!proceed) return
+      }
+    }
+
     const { mealIdx, itemIdx } = swapTarget
     const newPlan = { ...plan, meals: plan.meals.map((m, mi) => {
       if (mi !== mealIdx) return m
