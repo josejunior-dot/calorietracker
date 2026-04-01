@@ -72,7 +72,7 @@ export function PortionSelector({
     })
   }
 
-  const handleConfirm = async () => {
+  const saveMealEntry = async (skipDuplicateCheck = false) => {
     setSaving(true)
     try {
       const res = await fetch("/api/refeicoes", {
@@ -83,8 +83,23 @@ export function PortionSelector({
           date,
           mealType,
           servings,
+          skipDuplicateCheck,
         }),
       })
+
+      if (res.status === 409) {
+        const data = await res.json()
+        if (data.error === "similar_food") {
+          setSaving(false)
+          const confirmed = confirm(
+            `Ja existe "${data.existingFood}" nessa refeicao.\n\nDeseja adicionar "${data.newFood}" mesmo assim?`
+          )
+          if (confirmed) {
+            await saveMealEntry(true)
+          }
+          return
+        }
+      }
 
       if (!res.ok) {
         const err = await res.json()
@@ -104,6 +119,8 @@ export function PortionSelector({
       setSaving(false)
     }
   }
+
+  const handleConfirm = () => saveMealEntry(false)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">

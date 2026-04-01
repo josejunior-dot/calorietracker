@@ -96,6 +96,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check for similar food already in the same meal (unless user confirmed)
+    const skipDuplicateCheck = body.skipDuplicateCheck === true
+    if (!skipDuplicateCheck) {
+      const existingEntries = await prisma.mealEntry.findMany({
+        where: { userId: resolvedUserId, date, mealType },
+        include: { food: true },
+      })
+
+      const baseType = extractFoodBaseType(food.name)
+      if (baseType) {
+        const similar = existingEntries.find(
+          (e) => e.foodId !== foodId && extractFoodBaseType(e.food.name) === baseType
+        )
+        if (similar) {
+          return NextResponse.json(
+            {
+              error: 'similar_food',
+              message: `Ja existe "${similar.food.name}" nessa refeicao. Deseja adicionar "${food.name}" tambem?`,
+              existingFood: similar.food.name,
+              newFood: food.name,
+            },
+            { status: 409 }
+          )
+        }
+      }
+    }
+
     // Calculate denormalized values
     const calories = food.calories * servings
     const protein = food.protein * servings
@@ -169,4 +196,43 @@ async function recalculateDailyLog(userId: string, date: string) {
       fat,
     },
   })
+}
+
+/**
+ * Extract the "base type" of a food name so we can detect duplicates like
+ * "Feijão preto cozido" vs "Feijão carioca cozido" → both are "feijao".
+ * Returns null if no known base type matches.
+ */
+function extractFoodBaseType(name: string): string | null {
+  const normalized = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+
+  // Map of base types → keywords that identify them
+  const BASE_TYPES: Record<string, string[]> = {
+    feijao: ['feijao'],
+    arroz: ['arroz'],
+    carne: ['carne moida', 'carne bovina', 'carne de', 'patinho', 'acem', 'alcatra', 'maminha', 'picanha', 'contrafile', 'coxao', 'lagarto', 'musculo'],
+    frango: ['frango', 'peito de frango', 'coxa de frango', 'sobrecoxa'],
+    peixe: ['peixe', 'merluza', 'tilapia', 'salmao', 'atum', 'sardinha', 'bacalhau', 'pescada'],
+    ovo: ['ovo cozido', 'ovo frito', 'ovo mexido', 'omelete', 'ovo '],
+    leite: ['leite integral', 'leite desnatado', 'leite semi'],
+    pao: ['pao de forma', 'pao frances', 'pao integral', 'pao de'],
+    queijo: ['queijo minas', 'queijo mussarela', 'queijo prato', 'queijo coalho', 'queijo cottage', 'queijo'],
+    banana: ['banana'],
+    batata: ['batata doce', 'batata inglesa', 'batata cozida', 'batata frita', 'batata'],
+    macarrao: ['macarrao', 'espaguete', 'penne', 'massa'],
+    iogurte: ['iogurte'],
+  }
+
+  for (const [baseType, keywords] of Object.entries(BASE_TYPES)) {
+    // Sort keywords by length desc so longer (more specific) matches first
+    const sorted = [...keywords].sort((a, b) => b.length - a.length)
+    for (const kw of sorted) {
+      if (normalized.includes(kw)) return baseType
+    }
+  }
+
+  return null
 }
