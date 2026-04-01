@@ -51,8 +51,24 @@ model Food {
   isCustom     Boolean  @default(false)
   createdAt    DateTime @default(now())
 
+  isCombo      Boolean  @default(false)
+
   mealEntries MealEntry[]
   fixedFoods  FixedFood[]
+  comboItems  ComboItem[]
+}
+
+model ComboItem {
+  id        String @id @default(cuid())
+  comboId   String // Food.id do combo pai
+  foodId    String // Food.id do ingrediente
+  quantity  Float  // quantidade em gramas ou unidades
+  unit      String // "g", "unidade", "pitada", "colher"
+  servings  Float  @default(1) // porcoes do ingrediente
+
+  combo Food @relation(fields: [comboId], references: [id], onDelete: Cascade)
+
+  @@index([comboId])
 }
 
 model MealEntry {

@@ -7,7 +7,7 @@ import {
   Wand2, RefreshCw, CalendarDays, Check, ChevronRight,
   Flame, Beef, Wheat, Droplets, ArrowLeftRight, X, Search,
   Pin, AlertTriangle, ChevronDown, Zap, Leaf, Target, Dumbbell, Trophy,
-  Info,
+  Info, Layers,
 } from "lucide-react"
 import { toast } from "sonner"
 import { toISODate, formatDateShort } from "@/lib/date"
@@ -628,6 +628,19 @@ export default function DietaPage() {
           <Pin className="w-4 h-4 text-amber-500" />
           <span className="text-sm font-medium text-foreground">Alimentos Obrigatorios do Plano</span>
           <span className="text-xs text-muted-foreground">({fixedCount} itens)</span>
+        </div>
+        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+      </Link>
+
+      {/* Link to Combos */}
+      <Link
+        href="/combos"
+        className="flex items-center justify-between px-4 py-3 bg-card rounded-xl border border-border hover:bg-muted/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-violet-500" />
+          <span className="text-sm font-medium text-foreground">Meus Combos</span>
+          <span className="text-xs text-muted-foreground">Monte receitas personalizadas</span>
         </div>
         <ChevronRight className="w-4 h-4 text-muted-foreground" />
       </Link>
