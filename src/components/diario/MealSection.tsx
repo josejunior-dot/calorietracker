@@ -33,6 +33,7 @@ type MealSectionProps = {
   emoji: string
   entries: MealEntryWithFood[]
   onDelete: (id: string) => void
+  onEdit: (id: string, servings: number) => void
   onAddClick: () => void
 }
 
@@ -42,6 +43,7 @@ export function MealSection({
   emoji,
   entries,
   onDelete,
+  onEdit,
   onAddClick,
 }: MealSectionProps) {
   const [expanded, setExpanded] = useState(true)
@@ -85,6 +87,7 @@ export function MealSection({
                   key={entry.id}
                   entry={entry}
                   onDelete={onDelete}
+                  onEdit={onEdit}
                 />
               ))}
             </div>

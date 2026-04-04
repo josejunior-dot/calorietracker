@@ -27,11 +27,22 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const entries = await prisma.mealEntry.findMany({
-      where: { userId: resolvedUserId, date },
-      include: { food: true },
-      orderBy: { createdAt: 'asc' },
-    })
+    const [entries, user] = await Promise.all([
+      prisma.mealEntry.findMany({
+        where: { userId: resolvedUserId, date },
+        include: { food: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.user.findUnique({
+        where: { id: resolvedUserId },
+        select: { dailyCalTarget: true, goal: true, goalKgPerWeek: true },
+      }),
+    ])
+
+    const target = user?.dailyCalTarget ?? 2000
+    const proteinTarget = Math.round((target * 0.25) / 4)
+    const carbsTarget = Math.round((target * 0.5) / 4)
+    const fatTarget = Math.round((target * 0.25) / 9)
 
     // Group by mealType
     const grouped = MEAL_TYPES.map(({ key, label }) => {
@@ -52,7 +63,20 @@ export async function GET(request: NextRequest) {
       fat: Math.round(entries.reduce((s, e) => s + e.fat, 0) * 10) / 10,
     }
 
-    return NextResponse.json({ meals: grouped, totals })
+    const targets = {
+      calories: target,
+      protein: proteinTarget,
+      carbs: carbsTarget,
+      fat: fatTarget,
+    }
+
+    return NextResponse.json({
+      meals: grouped,
+      totals,
+      targets,
+      goal: user?.goal ?? 'manter',
+      goalKgPerWeek: user?.goalKgPerWeek ?? 0.5,
+    })
   } catch (error) {
     console.error('GET /api/refeicoes error:', error)
     return NextResponse.json(

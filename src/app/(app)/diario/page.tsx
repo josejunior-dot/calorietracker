@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { DayNavigator } from "@/components/diario/DayNavigator"
 import { MealSection } from "@/components/diario/MealSection"
 import { toISODate } from "@/lib/date"
-import { MEAL_TYPES } from "@/lib/constants"
+import { MEAL_TYPES, GOALS, MACRO_COLORS } from "@/lib/constants"
+import { MacroBar } from "@/components/dashboard/MacroBar"
 import { toast } from "sonner"
 
 type Food = {
@@ -46,6 +47,14 @@ type MealsResponse = {
     carbs: number
     fat: number
   }
+  targets: {
+    calories: number
+    protein: number
+    carbs: number
+    fat: number
+  }
+  goal: string
+  goalKgPerWeek: number
 }
 
 function DiarioContent() {
@@ -57,7 +66,6 @@ function DiarioContent() {
   )
   const [data, setData] = useState<MealsResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [dailyTarget] = useState(2000) // TODO: from user profile
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -97,22 +105,53 @@ function DiarioContent() {
     }
   }
 
+  const handleEdit = async (id: string, servings: number) => {
+    try {
+      const res = await fetch(`/api/refeicoes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ servings }),
+      })
+      if (res.ok) {
+        toast.success("Quantidade atualizada")
+        fetchData()
+      } else {
+        toast.error("Erro ao atualizar quantidade")
+      }
+    } catch {
+      toast.error("Erro ao atualizar quantidade")
+    }
+  }
+
   const handleAddClick = (mealType: string) => {
     router.push(`/adicionar?meal=${mealType}&date=${date}`)
   }
 
   const totalConsumed = data?.totals.calories || 0
+  const dailyTarget = data?.targets.calories ?? 2000
   const remaining = dailyTarget - totalConsumed
   const progress = Math.min((totalConsumed / dailyTarget) * 100, 100)
   const isOver = totalConsumed > dailyTarget
+  const goalLabel = GOALS.find((g) => g.key === data?.goal)?.label ?? "Manter Peso"
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-4 pb-24 max-w-lg mx-auto">
       {/* Day navigator */}
       <DayNavigator date={date} onDateChange={handleDateChange} />
 
-      {/* Daily summary bar */}
+      {/* Goal badge + Daily summary */}
       <div className="bg-card rounded-2xl shadow-sm border border-border p-4 space-y-3">
+        {/* Objective */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-full">
+            {goalLabel}
+          </span>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            Meta: {dailyTarget} kcal
+          </span>
+        </div>
+
+        {/* Calories: consumed vs target */}
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-muted-foreground font-medium">Consumido</p>
@@ -134,7 +173,7 @@ function DiarioContent() {
           </div>
         </div>
 
-        {/* Progress bar */}
+        {/* Calorie progress bar */}
         <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-500 ease-out ${
@@ -144,26 +183,26 @@ function DiarioContent() {
           />
         </div>
 
-        {/* Macro summary */}
+        {/* Macro bars: meta vs realizado */}
         {data && (
-          <div className="grid grid-cols-3 gap-3 pt-1">
-            <MacroSummary
-              label="Proteína"
-              value={data.totals.protein}
-              unit="g"
-              color="bg-indigo-500"
+          <div className="flex flex-col gap-3 pt-1">
+            <MacroBar
+              label="Proteina"
+              current={data.totals.protein}
+              target={data.targets.protein}
+              color={MACRO_COLORS.protein.bg}
             />
-            <MacroSummary
-              label="Carbs"
-              value={data.totals.carbs}
-              unit="g"
-              color="bg-amber-500"
+            <MacroBar
+              label="Carboidratos"
+              current={data.totals.carbs}
+              target={data.targets.carbs}
+              color={MACRO_COLORS.carbs.bg}
             />
-            <MacroSummary
+            <MacroBar
               label="Gordura"
-              value={data.totals.fat}
-              unit="g"
-              color="bg-red-500"
+              current={data.totals.fat}
+              target={data.targets.fat}
+              color={MACRO_COLORS.fat.bg}
             />
           </div>
         )}
@@ -193,6 +232,7 @@ function DiarioContent() {
                 emoji={meal.emoji}
                 entries={group?.items || []}
                 onDelete={handleDelete}
+                onEdit={handleEdit}
                 onAddClick={() => handleAddClick(meal.key)}
               />
             )
@@ -203,29 +243,6 @@ function DiarioContent() {
   )
 }
 
-function MacroSummary({
-  label,
-  value,
-  unit,
-  color,
-}: {
-  label: string
-  value: number
-  unit: string
-  color: string
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className={`w-2 h-2 rounded-full ${color}`} />
-      <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-sm font-semibold text-foreground tabular-nums">
-          {Math.round(value * 10) / 10}{unit}
-        </p>
-      </div>
-    </div>
-  )
-}
 
 export default function DiarioPage() {
   return (
